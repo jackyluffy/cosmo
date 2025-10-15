@@ -1,0 +1,631 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Image,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Modal,
+  TextInput,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { useAuthStore } from '../../store/authStore';
+import { profileAPI } from '../../services/api';
+import { Colors } from '../../constants/theme';
+import { INTEREST_CATEGORIES, getInterestEmoji } from '../../constants/interests';
+
+const { width } = Dimensions.get('window');
+const PHOTO_SIZE = (width - 60) / 3; // 3 photos per row with spacing
+
+export default function ProfileScreen() {
+  const { user, loadUser, logout } = useAuthStore();
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [hasFixedPhotos, setHasFixedPhotos] = useState(false);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
+  const [isEditingInterests, setIsEditingInterests] = useState(false);
+  const [editedInterests, setEditedInterests] = useState<string[]>([]);
+  const [newInterest, setNewInterest] = useState('');
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  // Update photos whenever user changes
+  useEffect(() => {
+    if (user?.profile?.photos) {
+      console.log('[ProfileScreen] Setting photos:', user.profile.photos);
+      setPhotos(user.profile.photos);
+
+      // Auto-fix photos if they contain signed URLs (only once)
+      if (!hasFixedPhotos && user.profile.photos.some((url: string) => url.includes('?'))) {
+        console.log('[ProfileScreen] Detected signed URLs, auto-fixing...');
+        fixPhotosAutomatically();
+      }
+    }
+  }, [user]);
+
+  const fixPhotosAutomatically = async () => {
+    try {
+      console.log('[ProfileScreen] Auto-fixing photo URLs...');
+      const response = await profileAPI.fixPhotoUrls();
+      console.log('[ProfileScreen] Fixed photos:', response.data?.data?.fixedCount);
+      setHasFixedPhotos(true);
+      await loadUser(); // Reload to get new URLs
+    } catch (error: any) {
+      console.error('[ProfileScreen] Auto-fix photos error:', error);
+      // Silently fail - don't bother the user
+    }
+  };
+
+  const loadProfile = async () => {
+    setIsLoading(true);
+    try {
+      await loadUser();
+    } catch (error) {
+      console.error('Failed to load profile:', error);
+      Alert.alert('Error', 'Failed to load profile');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const pickImage = async () => {
+    // Check if we've already reached the max
+    if (photos.length >= 6) {
+      Alert.alert('Maximum photos', 'You can only upload up to 6 photos');
+      return;
+    }
+
+    // Request permission
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow access to your photos');
+      return;
+    }
+
+    // Launch image picker
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [3, 4],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      uploadPhoto(result.assets[0].uri);
+    }
+  };
+
+  const uploadPhoto = async (uri: string) => {
+    setIsUploadingPhoto(true);
+    try {
+      // Create form data
+      const formData = new FormData();
+      const filename = uri.split('/').pop() || 'photo.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
+
+      formData.append('photo', {
+        uri,
+        name: filename,
+        type,
+      } as any);
+
+      // Upload photo
+      const response = await profileAPI.uploadPhoto(formData);
+
+      // Reload profile to get updated photos
+      await loadProfile();
+      Alert.alert('Success', 'Photo uploaded successfully');
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      Alert.alert('Upload failed', error.response?.data?.error || 'Failed to upload photo');
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const deletePhoto = async (photoUrl: string) => {
+    // Check minimum photos requirement
+    if (photos.length <= 3) {
+      Alert.alert('Minimum photos', 'You must have at least 3 photos');
+      return;
+    }
+
+    Alert.alert(
+      'Delete photo',
+      'Are you sure you want to delete this photo?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await profileAPI.deletePhoto(photoUrl);
+              await loadProfile();
+              Alert.alert('Success', 'Photo deleted');
+            } catch (error: any) {
+              Alert.alert('Error', error.response?.data?.error || 'Failed to delete photo');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const openInterestsEditor = () => {
+    setEditedInterests(user?.profile?.interests || []);
+    setIsEditingInterests(true);
+  };
+
+  const toggleInterest = useCallback((interest: string) => {
+    setEditedInterests(prev => {
+      if (prev.includes(interest)) {
+        return prev.filter(i => i !== interest);
+      } else {
+        return [...prev, interest];
+      }
+    });
+  }, []);
+
+  const saveInterests = useCallback(async () => {
+    try {
+      setIsEditingInterests(false); // Close modal first to clean up UI
+      await profileAPI.updateProfile({ interests: editedInterests });
+      await loadUser();
+      Alert.alert('Success', 'Interests updated');
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.error || 'Failed to update interests');
+    }
+  }, [editedInterests]);
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>My Profile</Text>
+      </View>
+
+      {/* Profile Info */}
+      <View style={styles.section}>
+        <Text style={styles.name}>{user?.profile?.name || 'No name'}</Text>
+        <Text style={styles.details}>
+          {user?.profile?.age || 'N/A'} • {user?.profile?.gender || 'N/A'}
+        </Text>
+        {user?.profile?.bio && (
+          <Text style={styles.bio}>{user.profile.bio}</Text>
+        )}
+      </View>
+
+      {/* Photos Section */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Photos ({photos.length}/6)</Text>
+          <Text style={styles.sectionSubtitle}>
+            {photos.length < 3
+              ? `Add at least ${3 - photos.length} more photo(s)`
+              : 'Minimum 3 photos required'}
+          </Text>
+        </View>
+
+        <View style={styles.photosGrid}>
+          {photos.map((photo, index) => (
+            <View key={index} style={styles.photoContainer}>
+              <TouchableOpacity onPress={() => setSelectedPhotoIndex(index)}>
+                <Image
+                  source={{ uri: photo }}
+                  style={styles.photo}
+                  resizeMode="cover"
+                  onError={(e) => console.log('[ProfileScreen] Image load error:', e.nativeEvent.error)}
+                  onLoad={() => console.log('[ProfileScreen] Image loaded:', photo.substring(0, 100))}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => deletePhoto(photo)}
+              >
+                <Ionicons name="close-circle" size={24} color={Colors.danger} />
+              </TouchableOpacity>
+            </View>
+          ))}
+
+          {/* Add photo button */}
+          {photos.length < 6 && (
+            <TouchableOpacity
+              style={styles.addPhotoButton}
+              onPress={pickImage}
+              disabled={isUploadingPhoto}
+            >
+              {isUploadingPhoto ? (
+                <ActivityIndicator color={Colors.primary} />
+              ) : (
+                <>
+                  <Ionicons name="add" size={40} color={Colors.gray} />
+                  <Text style={styles.addPhotoText}>Add Photo</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Interests */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Interests</Text>
+          <TouchableOpacity onPress={openInterestsEditor}>
+            <Ionicons name="pencil" size={20} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
+        {user?.profile?.interests && user.profile.interests.length > 0 ? (
+          <View style={styles.interestsContainer}>
+            {user.profile.interests.map((interest, index) => (
+              <View key={index} style={styles.interestTag}>
+                <Text style={styles.interestText}>{interest}</Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.noInterestsText}>No interests added yet</Text>
+        )}
+      </View>
+
+      {/* Subscription Status */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Subscription</Text>
+        <Text style={styles.subscriptionStatus}>
+          Status: {user?.subscription?.status || 'trial'}
+        </Text>
+      </View>
+
+      {/* Logout Button */}
+      <TouchableOpacity
+        style={styles.logoutButton}
+        onPress={() => {
+          Alert.alert('Logout', 'Are you sure you want to logout?', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Logout', style: 'destructive', onPress: logout },
+          ]);
+        }}
+      >
+        <Text style={styles.logoutText}>Logout</Text>
+      </TouchableOpacity>
+
+      {/* Photo Viewer Modal */}
+      <Modal
+        visible={selectedPhotoIndex !== null}
+        transparent
+        onRequestClose={() => setSelectedPhotoIndex(null)}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.modalCloseButton}
+            onPress={() => setSelectedPhotoIndex(null)}
+          >
+            <Ionicons name="close" size={32} color={Colors.white} />
+          </TouchableOpacity>
+          {selectedPhotoIndex !== null && (
+            <Image
+              source={{ uri: photos[selectedPhotoIndex] }}
+              style={styles.fullScreenPhoto}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </Modal>
+
+      {/* Interests Editor Modal */}
+      <Modal
+        visible={isEditingInterests}
+        animationType="slide"
+        onRequestClose={() => setIsEditingInterests(false)}
+      >
+        <View style={styles.interestsEditorModal}>
+          <View style={styles.interestsEditorHeader}>
+            <TouchableOpacity onPress={() => setIsEditingInterests(false)}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Select Interests</Text>
+            <TouchableOpacity onPress={saveInterests}>
+              <Text style={styles.saveText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.interestsEditorContent}>
+            <Text style={styles.selectedCountText}>
+              {editedInterests.length} selected
+            </Text>
+
+            {INTEREST_CATEGORIES.map((category, catIndex) => (
+              <View key={catIndex} style={styles.categorySection}>
+                <Text style={styles.categoryTitle}>
+                  {category.emoji} {category.name}
+                </Text>
+                <View style={styles.interestsList}>
+                  {category.interests.map((interest, intIndex) => {
+                    const isSelected = editedInterests.includes(interest);
+                    return (
+                      <TouchableOpacity
+                        key={intIndex}
+                        style={[
+                          styles.interestCheckbox,
+                          isSelected && styles.interestCheckboxSelected
+                        ]}
+                        onPress={() => toggleInterest(interest)}
+                      >
+                        <Text style={[
+                          styles.interestCheckboxText,
+                          isSelected && styles.interestCheckboxTextSelected
+                        ]}>
+                          {getInterestEmoji(interest)} {interest}
+                        </Text>
+                        {isSelected && (
+                          <Ionicons name="checkmark-circle" size={20} color={Colors.white} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  content: {
+    paddingBottom: 40,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  header: {
+    padding: 20,
+    paddingTop: 60,
+    backgroundColor: Colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightGray,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: Colors.text,
+  },
+  section: {
+    padding: 20,
+    backgroundColor: Colors.white,
+    marginTop: 10,
+  },
+  name: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.text,
+    marginBottom: 5,
+  },
+  details: {
+    fontSize: 16,
+    color: Colors.gray,
+    marginBottom: 10,
+  },
+  bio: {
+    fontSize: 16,
+    color: Colors.text,
+    lineHeight: 24,
+    marginTop: 10,
+  },
+  sectionHeader: {
+    marginBottom: 15,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.text,
+    marginBottom: 5,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: Colors.gray,
+  },
+  photosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  photoContainer: {
+    width: PHOTO_SIZE,
+    height: PHOTO_SIZE * 1.3,
+    position: 'relative',
+  },
+  photo: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  deleteButton: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+  },
+  addPhotoButton: {
+    width: PHOTO_SIZE,
+    height: PHOTO_SIZE * 1.3,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: Colors.lightGray,
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  addPhotoText: {
+    marginTop: 5,
+    fontSize: 12,
+    color: Colors.gray,
+  },
+  interestsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  interestTag: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  interestText: {
+    color: Colors.white,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  subscriptionStatus: {
+    fontSize: 16,
+    color: Colors.text,
+    textTransform: 'capitalize',
+  },
+  logoutButton: {
+    backgroundColor: Colors.white,
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.danger,
+    alignItems: 'center',
+  },
+  logoutText: {
+    color: Colors.danger,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  noInterestsText: {
+    fontSize: 14,
+    color: Colors.gray,
+    fontStyle: 'italic',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  interestsEditorModal: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  modalCloseButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 10,
+  },
+  fullScreenPhoto: {
+    width: '100%',
+    height: '100%',
+  },
+  interestsEditorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: Colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightGray,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.text,
+  },
+  cancelText: {
+    fontSize: 16,
+    color: Colors.gray,
+  },
+  saveText: {
+    fontSize: 16,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+  interestsEditorContent: {
+    flex: 1,
+    padding: 20,
+  },
+  selectedCountText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.primary,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  categorySection: {
+    marginBottom: 30,
+  },
+  categoryTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.text,
+    marginBottom: 15,
+  },
+  interestsList: {
+    gap: 10,
+  },
+  interestCheckbox: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: Colors.lightGray,
+  },
+  interestCheckboxSelected: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  interestCheckboxText: {
+    fontSize: 16,
+    color: Colors.text,
+    fontWeight: '500',
+  },
+  interestCheckboxTextSelected: {
+    color: Colors.white,
+  },
+});

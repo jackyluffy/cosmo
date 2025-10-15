@@ -1,0 +1,47 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isValidImageFile() {
+      return request.resource.contentType.matches('image/.*') &&
+             request.resource.size < 5 * 1024 * 1024; // 5MB max
+    }
+
+    // Profile photos
+    match /profile-photos/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isValidImageFile();
+      allow delete: if isOwner(userId);
+    }
+
+    // Event photos
+    match /event-photos/{eventId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isValidImageFile() &&
+        firestore.exists(/databases/(default)/documents/events/$(eventId)) &&
+        firestore.get(/databases/(default)/documents/events/$(eventId)).data.organizer.id == request.auth.uid;
+      allow delete: if isSignedIn() &&
+        firestore.exists(/databases/(default)/documents/events/$(eventId)) &&
+        firestore.get(/databases/(default)/documents/events/$(eventId)).data.organizer.id == request.auth.uid;
+    }
+
+    // Chat media
+    match /chat-media/{groupId}/{fileName} {
+      allow read: if isSignedIn() &&
+        firestore.exists(/databases/(default)/documents/groups/$(groupId)) &&
+        request.auth.uid in firestore.get(/databases/(default)/documents/groups/$(groupId)).data.members[*].userId;
+      allow write: if isSignedIn() && isValidImageFile() &&
+        firestore.exists(/databases/(default)/documents/groups/$(groupId)) &&
+        request.auth.uid in firestore.get(/databases/(default)/documents/groups/$(groupId)).data.members[*].userId;
+      allow delete: if false; // Only admins can delete
+    }
+  }
+}

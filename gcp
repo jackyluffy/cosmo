@@ -1,0 +1,15 @@
+export PROJECT_ID=cosmo-production-473621
+export REGION=us-west1
+export BILLING_ACCOUNT=01E69F-81B8DB-D4676A
+
+export VPC_CONNECTOR=cosmo-run-vpc
+export SQL_INSTANCE=cosmo-sql
+export SQL_DB=cosmo
+export SQL_USER=cosmo
+export SQL_PASS='Hithere123!!'
+export REDIS_INSTANCE=cosmo-redis
+export BUCKET=cosmo-photos-$PROJECT_ID
+
+export API_IMG=gcr.io/$PROJECT_ID/cosmo-api
+export WORKER_IMG=gcr.io/$PROJECT_ID/cosmo-worker
+export BEAT_IMG=gcr.io/$PROJECT_ID/cosmo-beat

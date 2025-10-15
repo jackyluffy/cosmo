@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+# dist/ # Temporarily allow dist/ for deployment
+build/
+# *.js # Temporarily allow .js files
+# *.js.map # Temporarily allow .map files
+
+# Development files
+.env
+.env.local
+.env.*.local
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+functions/
+
+# Testing
+coverage/
+.nyc_output/
+*.test.js
+*.spec.js
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# Documentation
+README.md
+docs/
+*.md
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+cloudbuild.yaml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Logs
+logs/
+*.log
+
+# Security - Never include in image
+serviceAccount.json
+*.pem
+*.key
+*.cert

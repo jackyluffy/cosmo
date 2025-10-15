@@ -1,0 +1,84 @@
+{
+  "name": "cosmo",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "@invertase/react-native-apple-authentication": "^2.4.1",
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-community/slider": "^5.0.1",
+    "@react-native-google-signin/google-signin": "^16.0.0",
+    "@react-navigation/bottom-tabs": "^7.4.7",
+    "@react-navigation/native": "^7.1.17",
+    "@react-navigation/stack": "^7.4.8",
+    "@stripe/stripe-react-native": "0.50.3",
+    "axios": "^1.12.2",
+    "date-fns": "^4.1.0",
+    "expo": "~54.0.10",
+    "expo-auth-session": "^7.0.8",
+    "expo-camera": "^17.0.8",
+    "expo-file-system": "^19.0.17",
+    "expo-image-picker": "^17.0.8",
+    "expo-location": "^19.0.7",
+    "expo-notifications": "^0.32.11",
+    "expo-status-bar": "~3.0.8",
+    "expo-web-browser": "^15.0.7",
+    "react": "19.1.0",
+    "react-hook-form": "^7.63.0",
+    "react-native": "0.81.4",
+    "react-native-deck-swiper": "^2.0.19",
+    "react-native-gesture-handler": "^2.28.0",
+    "react-native-maps": "^1.26.14",
+    "react-native-nitro-modules": "^0.30.0",
+    "react-native-paper": "^5.14.5",
+    "react-native-reanimated": "^4.1.2",
+    "react-native-safe-area-context": "^5.6.1",
+    "react-native-screens": "^4.16.0",
+    "react-native-vector-icons": "^10.3.0",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@babel/preset-env": "^7.28.3",
+    "@babel/preset-typescript": "^7.27.1",
+    "@testing-library/react-native": "^13.3.3",
+    "@types/jest": "~29.5.0",
+    "@types/react": "~19.1.0",
+    "babel-jest": "^30.1.2",
+    "babel-preset-expo": "^54.0.3",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "~29.7.0",
+    "jest-environment-jsdom": "~29.7.0",
+    "metro-react-native-babel-preset": "^0.77.0",
+    "react-test-renderer": "^19.0.0",
+    "typescript": "~5.9.2"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "moduleNameMapper": {
+      "\\.(css|less|scss|sass)$": "identity-obj-proxy"
+    },
+    "transform": {
+      "^.+\\.(js|jsx|ts|tsx)$": "babel-jest"
+    },
+    "testMatch": [
+      "**/__tests__/**/*.(js|jsx|ts|tsx)",
+      "**/*.(test|spec).(js|jsx|ts|tsx)"
+    ],
+    "collectCoverageFrom": [
+      "**/*.{js,jsx,ts,tsx}",
+      "!**/node_modules/**",
+      "!**/vendor/**",
+      "!**/*.d.ts"
+    ]
+  },
+  "private": true
+}

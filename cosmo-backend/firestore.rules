@@ -1,0 +1,83 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function hasCompleteProfile() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.profile != null;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+    }
+
+    // Events collection
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && hasCompleteProfile();
+      allow update: if isSignedIn() &&
+        resource.data.organizer.id == request.auth.uid;
+      allow delete: if false; // Only admins can delete
+    }
+
+    // Groups collection
+    match /groups/{groupId} {
+      allow read: if isSignedIn() &&
+        request.auth.uid in resource.data.members[*].userId;
+      allow write: if false; // Only system can write
+    }
+
+    // Matches collection
+    match /matches/{matchId} {
+      allow read: if isSignedIn() &&
+        resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() &&
+        resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Messages collection
+    match /messages/{messageId} {
+      allow read: if isSignedIn() &&
+        exists(/databases/$(database)/documents/groups/$(resource.data.chatRoomId)) &&
+        request.auth.uid in get(/databases/$(database)/documents/groups/$(resource.data.chatRoomId)).data.members[*].userId;
+      allow create: if isSignedIn() &&
+        request.resource.data.senderId == request.auth.uid;
+      allow update: if isSignedIn() &&
+        resource.data.senderId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // OTP codes - no direct access
+    match /otp_codes/{codeId} {
+      allow read, write: if false;
+    }
+
+    // Subscriptions collection
+    match /subscriptions/{subscriptionId} {
+      allow read: if isSignedIn() &&
+        resource.data.userId == request.auth.uid;
+      allow write: if false; // Only system can write
+    }
+
+    // Reports collection
+    match /reports/{reportId} {
+      allow create: if isSignedIn();
+      allow read: if false; // Only admins can read
+      allow update, delete: if false;
+    }
+  }
+}
