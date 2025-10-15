@@ -95,7 +95,10 @@
       "Read(//Users/luffy/Library/Logs/DiagnosticReports/**)",
       "Bash(rm:*)",
       "Bash(watchman:*)",
-      "Bash(gcloud services list:*)"
+      "Bash(gcloud services list:*)",
+      "Bash(md5:*)",
+      "Bash(npx react-native bundle:*)",
+      "Read(//private/tmp/expo-test-bundle/_expo/static/js/ios/**)"
     ],
     "deny": [],
     "ask": []

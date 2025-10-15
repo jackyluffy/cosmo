@@ -51,6 +51,21 @@ app.use((req, res, next) => {
     console.log('[Server Middleware] Content-Type:', req.headers['content-type']);
     console.log('[Server Middleware] req.body:', JSON.stringify(req.body, null, 2));
   }
+
+  // Log ALL verification requests
+  if (req.path.includes('/verification')) {
+    console.log('\n========== VERIFICATION REQUEST RECEIVED ==========');
+    console.log('[Server Middleware] Method:', req.method);
+    console.log('[Server Middleware] Path:', req.path);
+    console.log('[Server Middleware] Full URL:', req.url);
+    console.log('[Server Middleware] Content-Type:', req.headers['content-type']);
+    console.log('[Server Middleware] Authorization:', req.headers.authorization ? 'Present' : 'Missing');
+    console.log('[Server Middleware] Body size:', JSON.stringify(req.body).length, 'bytes');
+    console.log('[Server Middleware] Has selfieBase64:', !!req.body?.selfieBase64);
+    console.log('[Server Middleware] Has profilePhotos:', !!req.body?.profilePhotos);
+    console.log('===================================================\n');
+  }
+
   next();
 });
 

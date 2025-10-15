@@ -304,7 +304,8 @@ const AdminController = {
         try {
             const { 
             // Location options
-            centerLat = 33.8722, centerLng = -117.8703, radiusMiles = 10, updateLocation = true, 
+            centerLat = 33.8722, centerLng = -117.8703, // Placentia, CA (W longitude is negative)
+            radiusMiles = 10, updateLocation = true, 
             // Gender options
             gender, // 'male', 'female', 'non-binary', or null to skip
             // Age options

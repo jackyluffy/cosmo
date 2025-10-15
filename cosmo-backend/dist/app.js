@@ -15,6 +15,7 @@ const billing_routes_1 = require("./routes/billing.routes");
 const cron_routes_1 = require("./routes/cron.routes");
 const admin_routes_1 = require("./routes/admin.routes");
 const media_routes_1 = require("./routes/media.routes");
+const verification_routes_1 = __importDefault(require("./routes/verification.routes"));
 const auth_middleware_1 = require("./middleware/auth.middleware");
 const rateLimit_middleware_1 = require("./middleware/rateLimit.middleware");
 const logger_1 = require("./utils/logger");
@@ -77,6 +78,8 @@ function initializeApp(app) {
     apiV1.use('/auth', (0, rateLimit_middleware_1.rateLimiter)('auth'), auth_routes_1.authRoutes);
     // Profile routes (requires authentication)
     apiV1.use('/profile', auth_middleware_1.authenticate, profile_routes_1.profileRoutes);
+    // Verification routes (requires authentication)
+    apiV1.use('/verification', auth_middleware_1.authenticate, verification_routes_1.default);
     // Swipe/matching routes (requires complete profile)
     apiV1.use('/swipe', auth_middleware_1.authenticate, auth_middleware_1.requireCompleteProfile, swipe_routes_1.swipeRoutes);
     // Event routes (requires authentication)

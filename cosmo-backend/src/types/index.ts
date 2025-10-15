@@ -21,6 +21,7 @@ export interface User {
 export interface UserProfile {
   name: string;
   age: number;
+  height?: string; // e.g., "5'5\""
   gender: 'male' | 'female' | 'other';
   genderPreference: 'male' | 'female' | 'both';
   bio: string;
@@ -198,6 +199,7 @@ export interface VerifyOTPRequest {
 export interface UpdateProfileRequest {
   name?: string;
   age?: number;
+  height?: string;
   gender?: 'male' | 'female' | 'other';
   genderPreference?: 'male' | 'female' | 'both';
   bio?: string;

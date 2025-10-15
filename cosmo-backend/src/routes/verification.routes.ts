@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { VerificationController } from '../controllers/verification.controller';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { authenticate } from '../middleware/auth.middleware';
 
 const router = Router();
 const verificationController = new VerificationController();
 
 // All routes require authentication
-router.use(authMiddleware);
+router.use(authenticate);
 
 // Verify selfie against profile photos
 router.post('/verify-selfie', verificationController.verifySelfie);

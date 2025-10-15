@@ -16,7 +16,18 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.cosmoapp.dating"
+      "bundleIdentifier": "com.cosmoapp.datingapp",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "cosmo",
+              "com.cosmoapp.datingapp",
+              "com.googleusercontent.apps.691853413697-d3r6po74rsm6ak7vdfk51a764lnk9udv"
+            ]
+          }
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {

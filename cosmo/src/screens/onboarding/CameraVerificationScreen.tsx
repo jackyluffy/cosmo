@@ -10,6 +10,7 @@ import {
   InteractionManager,
 } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 import { useAuthStore } from '../../store/authStore';
 import { verifySelfie } from '../../services/verificationService';
@@ -17,26 +18,29 @@ import { verifySelfie } from '../../services/verificationService';
 export default function CameraVerificationScreen({ navigation }: any) {
   const [facing, setFacing] = useState<CameraType>('front');
   const [permission, requestPermission] = useCameraPermissions();
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [capturedPhoto, setCapturedPhoto] = useState<{uri: string, base64?: string} | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const cameraRef = useRef<any>(null);
   const { user, updateProfile, loadUser } = useAuthStore();
+
+  // Auto-request camera permission on mount
+  React.useEffect(() => {
+    if (permission && !permission.granted) {
+      requestPermission();
+    }
+  }, [permission]);
 
   if (!permission) {
     return <View style={styles.container} />;
   }
 
   if (!permission.granted) {
+    // Show loading while permission is being requested
     return (
       <View style={styles.container}>
         <View style={styles.permissionContainer}>
-          <Text style={styles.title}>Camera Access Required</Text>
-          <Text style={styles.subtitle}>
-            We need to verify your identity by taking a selfie. This helps ensure the safety of our community.
-          </Text>
-          <TouchableOpacity style={styles.button} onPress={requestPermission}>
-            <Text style={styles.buttonText}>Grant Permission</Text>
-          </TouchableOpacity>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.subtitle}>Requesting camera access...</Text>
         </View>
       </View>
     );
@@ -50,7 +54,7 @@ export default function CameraVerificationScreen({ navigation }: any) {
         quality: 0.8,
         base64: true,
       });
-      setCapturedPhoto(photo.uri);
+      setCapturedPhoto(photo); // Store the whole photo object with uri and base64
     } catch (error) {
       console.error('Error taking picture:', error);
       Alert.alert('Error', 'Failed to take picture. Please try again.');
@@ -76,13 +80,25 @@ export default function CameraVerificationScreen({ navigation }: any) {
         return;
       }
 
-      console.log('[CameraVerification] Verifying selfie against profile photos...');
+      console.log('\n========== CAMERA VERIFICATION STARTED ==========');
+      console.log('[CameraVerification] User ID:', user?.uid);
+      console.log('[CameraVerification] Profile photos count:', userPhotos.length);
+      console.log('[CameraVerification] Profile photos:', userPhotos);
+      console.log('[CameraVerification] Selfie URI:', capturedPhoto.uri);
+      console.log('[CameraVerification] Has base64:', !!capturedPhoto.base64);
+      console.log('[CameraVerification] Calling verification service...');
 
       // Call verification service
-      const result = await verifySelfie(capturedPhoto, userPhotos);
+      const result = await verifySelfie(capturedPhoto.uri, userPhotos);
+
+      console.log('[CameraVerification] Verification service returned:');
+      console.log('[CameraVerification]   Verified:', result.isVerified);
+      console.log('[CameraVerification]   Similarity:', result.similarity.toFixed(2) + '%');
+      console.log('[CameraVerification]   Matched Photo Index:', result.matchedPhotoIndex);
+      console.log('[CameraVerification]   Message:', result.message);
 
       if (result.isVerified) {
-        console.log('[CameraVerification] Verification successful!', result);
+        console.log('[CameraVerification] ✓ VERIFICATION PASSED!');
 
         // Update profile to mark as verified
         await updateProfile({
@@ -108,7 +124,10 @@ export default function CameraVerificationScreen({ navigation }: any) {
           ]
         );
       } else {
-        console.log('[CameraVerification] Verification failed:', result);
+        console.log('[CameraVerification] ✗ VERIFICATION FAILED');
+        console.log('[CameraVerification] Similarity score:', result.similarity.toFixed(2) + '%');
+        console.log('[CameraVerification] Required threshold: 50%');
+        console.log('[CameraVerification] Shortfall:', (50 - result.similarity).toFixed(2) + '%');
         setCapturedPhoto(null);
         setIsVerifying(false);
         Alert.alert(
@@ -118,14 +137,18 @@ export default function CameraVerificationScreen({ navigation }: any) {
             {
               text: 'Try Again',
               onPress: () => {
-                // User will see the camera again
+                console.log('[CameraVerification] User chose to try again');
               }
             },
           ]
         );
       }
     } catch (error: any) {
-      console.error('[CameraVerification] Error verifying selfie:', error);
+      console.error('\n========== VERIFICATION ERROR ==========');
+      console.error('[CameraVerification] Error type:', error.name);
+      console.error('[CameraVerification] Error message:', error.message);
+      console.error('[CameraVerification] Full error:', error);
+      console.error('[CameraVerification] Error stack:', error.stack);
       setCapturedPhoto(null);
       setIsVerifying(false);
       Alert.alert(
@@ -135,7 +158,7 @@ export default function CameraVerificationScreen({ navigation }: any) {
           {
             text: 'Try Again',
             onPress: () => {
-              // User will see the camera again
+              console.log('[CameraVerification] User chose to try again after error');
             }
           },
         ]
@@ -154,7 +177,7 @@ export default function CameraVerificationScreen({ navigation }: any) {
         </View>
 
         <View style={styles.previewContainer}>
-          <Image source={{ uri: capturedPhoto }} style={styles.preview} />
+          <Image source={{ uri: capturedPhoto.uri }} style={styles.preview} />
         </View>
 
         <View style={styles.footer}>
@@ -169,14 +192,14 @@ export default function CameraVerificationScreen({ navigation }: any) {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.button, isVerifying && styles.buttonDisabled]}
+            style={[styles.checkmarkButton, isVerifying && styles.buttonDisabled]}
             onPress={handleVerify}
             disabled={isVerifying}
           >
             {isVerifying ? (
               <ActivityIndicator color={Colors.white} />
             ) : (
-              <Text style={styles.buttonText}>Verify</Text>
+              <Ionicons name="checkmark" size={32} color={Colors.white} />
             )}
           </TouchableOpacity>
         </View>
@@ -220,9 +243,12 @@ export default function CameraVerificationScreen({ navigation }: any) {
       </View>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
-          <View style={styles.captureButtonInner} />
-        </TouchableOpacity>
+        <View style={styles.captureButtonContainer}>
+          <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
+            <View style={styles.captureButtonInner} />
+          </TouchableOpacity>
+          <Text style={styles.captureButtonLabel}>Take Selfie</Text>
+        </View>
       </View>
 
       {/* DEV: Skip button for testing - remove in production */}
@@ -350,6 +376,10 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: Colors.primary,
   },
+  captureButtonContainer: {
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
   captureButton: {
     width: 80,
     height: 80,
@@ -357,13 +387,18 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     justifyContent: 'center',
     alignItems: 'center',
-    alignSelf: 'center',
   },
   captureButtonInner: {
     width: 64,
     height: 64,
     borderRadius: 32,
     backgroundColor: Colors.primary,
+  },
+  captureButtonLabel: {
+    ...Typography.body,
+    color: Colors.white,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   verifyingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -389,5 +424,13 @@ const styles = StyleSheet.create({
     ...Typography.bodySmall,
     color: Colors.white,
     fontWeight: '600',
+  },
+  checkmarkButton: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

@@ -24,38 +24,51 @@ export class VerificationController {
         });
       }
 
-      console.log(`[Verification] Starting verification for user ${userId}`);
+      console.log(`\n========== VERIFICATION STARTED ==========`);
+      console.log(`[Verification] User ID: ${userId}`);
       console.log(`[Verification] Profile photos count: ${profilePhotos.length}`);
+      console.log(`[Verification] Profile photos URLs:`, profilePhotos);
+      console.log(`[Verification] Threshold: ${(threshold * 100).toFixed(0)}%`);
+      console.log(`[Verification] Selfie base64 length: ${selfieBase64.length} characters`);
 
       // Convert selfie base64 to buffer
       const selfieBuffer = Buffer.from(selfieBase64, 'base64');
+      console.log(`[Verification] Selfie buffer size: ${selfieBuffer.length} bytes`);
 
       // Detect faces in the selfie
+      console.log(`[Verification] Calling Google Vision API for selfie face detection...`);
       const [selfieResult] = await vision.faceDetection({
         image: { content: selfieBuffer },
       });
 
       const selfieFaces = selfieResult.faceAnnotations || [];
+      console.log(`[Verification] Faces detected in selfie: ${selfieFaces.length}`);
 
       if (selfieFaces.length === 0) {
+        console.error(`[Verification] FAILED: No face detected in selfie`);
         return res.status(400).json({
           error: 'No face detected in selfie. Please try again with a clear photo of your face.',
         });
       }
 
       if (selfieFaces.length > 1) {
+        console.error(`[Verification] FAILED: Multiple faces detected (${selfieFaces.length})`);
         return res.status(400).json({
           error: 'Multiple faces detected. Please take a selfie with only your face visible.',
         });
       }
 
-      console.log(`[Verification] Detected 1 face in selfie`);
+      console.log(`[Verification] ✓ Detected 1 face in selfie`);
 
       // Get the face from selfie
       const selfieFace = selfieFaces[0];
+      const selfieConfidence = selfieFace.detectionConfidence || 0;
+      console.log(`[Verification] Selfie face detection confidence: ${(selfieConfidence * 100).toFixed(2)}%`);
+      console.log(`[Verification] Selfie landmarks count: ${selfieFace.landmarks?.length || 0}`);
 
       // Check face detection confidence
-      if (selfieFace.detectionConfidence && selfieFace.detectionConfidence < 0.7) {
+      if (selfieConfidence < 0.7) {
+        console.error(`[Verification] FAILED: Face detection confidence too low (${(selfieConfidence * 100).toFixed(2)}%)`);
         return res.status(400).json({
           error: 'Face detection confidence too low. Please try again with better lighting.',
         });
@@ -67,71 +80,117 @@ export class VerificationController {
         photoIndex: -1,
       };
 
+      const allSimilarities: { photoIndex: number; similarity: number; photoUrl: string }[] = [];
+      console.log(`\n---------- COMPARING WITH PROFILE PHOTOS ----------`);
+
       for (let i = 0; i < profilePhotos.length; i++) {
         const photoUrl = profilePhotos[i];
-        console.log(`[Verification] Comparing with profile photo ${i + 1}/${profilePhotos.length}`);
+        console.log(`\n[Verification] Photo ${i + 1}/${profilePhotos.length}:`);
+        console.log(`[Verification]   URL: ${photoUrl}`);
 
         try {
           // Fetch profile photo
+          console.log(`[Verification]   Fetching profile photo...`);
           const photoResponse = await fetch(photoUrl);
           if (!photoResponse.ok) {
-            console.warn(`[Verification] Failed to fetch photo ${i}: ${photoResponse.statusText}`);
+            console.warn(`[Verification]   ✗ SKIPPED: Failed to fetch (${photoResponse.status} ${photoResponse.statusText})`);
+            allSimilarities.push({ photoIndex: i, similarity: 0, photoUrl });
             continue;
           }
 
           const photoBuffer = Buffer.from(await photoResponse.arrayBuffer());
+          console.log(`[Verification]   ✓ Fetched (${photoBuffer.length} bytes)`);
 
           // Detect faces in profile photo
+          console.log(`[Verification]   Detecting faces in profile photo...`);
           const [photoResult] = await vision.faceDetection({
             image: { content: photoBuffer },
           });
 
           const photoFaces = photoResult.faceAnnotations || [];
+          console.log(`[Verification]   Faces detected: ${photoFaces.length}`);
 
           if (photoFaces.length === 0) {
-            console.warn(`[Verification] No face detected in profile photo ${i}`);
+            console.warn(`[Verification]   ✗ SKIPPED: No face detected in profile photo`);
+            allSimilarities.push({ photoIndex: i, similarity: 0, photoUrl });
             continue;
           }
 
+          const photoFace = photoFaces[0];
+          const photoConfidence = photoFace.detectionConfidence || 0;
+          console.log(`[Verification]   Face detection confidence: ${(photoConfidence * 100).toFixed(2)}%`);
+          console.log(`[Verification]   Landmarks count: ${photoFace.landmarks?.length || 0}`);
+
           // Compare faces using face landmarks
+          console.log(`[Verification]   Comparing faces...`);
           const similarity = this.compareFaces(selfieFace, photoFaces[0]);
-          console.log(`[Verification] Similarity with photo ${i}: ${(similarity * 100).toFixed(2)}%`);
+          console.log(`[Verification]   ✓ SIMILARITY SCORE: ${(similarity * 100).toFixed(2)}%`);
+
+          allSimilarities.push({ photoIndex: i, similarity, photoUrl });
 
           if (similarity > bestMatch.similarity) {
+            console.log(`[Verification]   🏆 NEW BEST MATCH! (previous: ${(bestMatch.similarity * 100).toFixed(2)}%)`);
             bestMatch = {
               similarity,
               photoIndex: i,
             };
+          } else {
+            console.log(`[Verification]   (Not better than current best: ${(bestMatch.similarity * 100).toFixed(2)}%)`);
           }
-        } catch (error) {
-          console.error(`[Verification] Error processing photo ${i}:`, error);
+        } catch (error: any) {
+          console.error(`[Verification]   ✗ ERROR processing photo:`, error.message);
+          console.error(`[Verification]   Error stack:`, error.stack);
+          allSimilarities.push({ photoIndex: i, similarity: 0, photoUrl });
           continue;
         }
       }
 
+      console.log(`\n---------- COMPARISON SUMMARY ----------`);
+      console.log(`[Verification] All similarity scores:`);
+      allSimilarities.forEach(({ photoIndex, similarity, photoUrl }) => {
+        const status = similarity === bestMatch.similarity && similarity > 0 ? '🏆 BEST' : '  ';
+        console.log(`[Verification]   ${status} Photo ${photoIndex + 1}: ${(similarity * 100).toFixed(2)}% - ${photoUrl}`);
+      });
+
       // Check if best match exceeds threshold
       const verified = bestMatch.similarity >= threshold;
 
-      console.log(`[Verification] Best match: ${(bestMatch.similarity * 100).toFixed(2)}%`);
-      console.log(`[Verification] Threshold: ${(threshold * 100).toFixed(2)}%`);
-      console.log(`[Verification] Verified: ${verified}`);
+      console.log(`\n========== FINAL RESULT ==========`);
+      console.log(`[Verification] Best Match Photo: #${bestMatch.photoIndex + 1}`);
+      console.log(`[Verification] Best Similarity: ${(bestMatch.similarity * 100).toFixed(2)}%`);
+      console.log(`[Verification] Required Threshold: ${(threshold * 100).toFixed(2)}%`);
+      console.log(`[Verification] Difference: ${((bestMatch.similarity - threshold) * 100).toFixed(2)}%`);
+      console.log(`[Verification] VERIFICATION RESULT: ${verified ? '✓ PASSED' : '✗ FAILED'}`);
 
       // If verified, update user profile
       if (verified) {
+        console.log(`[Verification] Updating user profile to mark as verified...`);
         await admin.firestore().collection('users').doc(userId).update({
           'profile.verified': true,
           'profile.verificationDate': admin.firestore.FieldValue.serverTimestamp(),
         });
+        console.log(`[Verification] ✓ Profile updated successfully`);
+      } else {
+        console.log(`[Verification] Not updating profile - verification failed`);
       }
 
-      return res.json({
+      const responseData = {
         verified,
         similarity: bestMatch.similarity,
         matchedPhotoIndex: bestMatch.photoIndex,
+        allSimilarities: allSimilarities.map(s => ({
+          photoIndex: s.photoIndex,
+          similarity: s.similarity,
+        })),
         message: verified
           ? 'Verification successful!'
           : `Verification failed. Similarity ${(bestMatch.similarity * 100).toFixed(0)}% is below threshold ${(threshold * 100).toFixed(0)}%`,
-      });
+      };
+
+      console.log(`[Verification] Sending response:`, JSON.stringify(responseData, null, 2));
+      console.log(`========== VERIFICATION ENDED ==========\n`);
+
+      return res.json(responseData);
     } catch (error: any) {
       console.error('[Verification] Error:', error);
       return res.status(500).json({

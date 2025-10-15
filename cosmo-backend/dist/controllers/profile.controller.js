@@ -65,6 +65,8 @@ class ProfileController {
                 profileUpdates['profile.name'] = updates.name;
             if (updates.age)
                 profileUpdates['profile.age'] = updates.age;
+            if (updates.height)
+                profileUpdates['profile.height'] = updates.height;
             if (updates.gender)
                 profileUpdates['profile.gender'] = updates.gender;
             if (updates.genderPreference)

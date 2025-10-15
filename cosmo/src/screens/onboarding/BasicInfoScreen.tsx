@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,8 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
   const { logout } = useAuthStore();
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
+  const [height, setHeight] = useState('5\'5"'); // Default to 5'5"
+  const [showHeightPicker, setShowHeightPicker] = useState(false);
   const [gender, setGender] = useState<Gender | null>(null);
   const [genderPreference, setGenderPreference] = useState<GenderPreference | null>(null);
   const [socialPlatform, setSocialPlatform] = useState<SocialPlatform>(null);
@@ -34,6 +36,7 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
   const [oneThingAboutMe, setOneThingAboutMe] = useState('');
   const [lookingFor, setLookingFor] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const heightScrollViewRef = useRef<ScrollView>(null);
 
   const handleLogout = async () => {
     Alert.alert(
@@ -51,6 +54,14 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
       ]
     );
   };
+
+  // Generate height options from 4'0" to 7'0"
+  const heightOptions: string[] = [];
+  for (let feet = 4; feet <= 7; feet++) {
+    for (let inches = 0; inches < 12; inches++) {
+      heightOptions.push(`${feet}'${inches}"`);
+    }
+  }
 
   const genderOptions: { value: Gender; label: string; icon: string }[] = [
     { value: 'male', label: 'Male', icon: 'male' },
@@ -81,6 +92,11 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
       return;
     }
 
+    if (!height) {
+      Alert.alert('Height Required', 'Please select your height');
+      return;
+    }
+
     if (!oneThingAboutMe.trim()) {
       Alert.alert('Required Field', 'Please tell us one thing you want people to know about you');
       return;
@@ -98,6 +114,7 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
       const profileData: any = {
         name: name.trim(),
         age: parseInt(age),
+        height: height,
         gender,
         genderPreference,
         bio: oneThingAboutMe.trim(),
@@ -178,6 +195,71 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
             keyboardType="number-pad"
             maxLength={3}
           />
+        </View>
+
+        {/* Height Picker */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Height *</Text>
+          <TouchableOpacity
+            style={styles.input}
+            onPress={() => {
+              const newState = !showHeightPicker;
+              setShowHeightPicker(newState);
+
+              // Scroll to default height (5'5") when opening picker
+              if (newState) {
+                setTimeout(() => {
+                  const defaultIndex = heightOptions.indexOf('5\'5"');
+                  if (defaultIndex >= 0 && heightScrollViewRef.current) {
+                    // Calculate approximate scroll position (48px per item)
+                    const scrollY = defaultIndex * 48;
+                    heightScrollViewRef.current.scrollTo({ y: scrollY, animated: true });
+                  }
+                }, 100);
+              }
+            }}
+          >
+            <Text style={{ color: height ? Colors.text : Colors.gray }}>
+              {height || "Select your height"}
+            </Text>
+            <Ionicons
+              name={showHeightPicker ? "chevron-up" : "chevron-down"}
+              size={20}
+              color={Colors.gray}
+              style={{ position: 'absolute', right: 16, top: 16 }}
+            />
+          </TouchableOpacity>
+
+          {showHeightPicker && (
+            <View style={styles.heightPickerContainer}>
+              <ScrollView
+                ref={heightScrollViewRef}
+                style={styles.heightScrollView}
+                showsVerticalScrollIndicator={true}
+              >
+                {heightOptions.map((h) => (
+                  <TouchableOpacity
+                    key={h}
+                    style={[
+                      styles.heightOption,
+                      height === h && styles.heightOptionSelected
+                    ]}
+                    onPress={() => {
+                      setHeight(h);
+                      setShowHeightPicker(false);
+                    }}
+                  >
+                    <Text style={[
+                      styles.heightOptionText,
+                      height === h && styles.heightOptionTextSelected
+                    ]}>
+                      {h}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
 
         {/* Gender Selection */}
@@ -384,10 +466,10 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
         <TouchableOpacity
           style={[
             styles.continueButton,
-            (!name || !age || !gender || !genderPreference || !oneThingAboutMe) && styles.continueButtonDisabled,
+            (!name || !age || !height || !gender || !genderPreference || !oneThingAboutMe) && styles.continueButtonDisabled,
           ]}
           onPress={handleContinue}
-          disabled={!name || !age || !gender || !genderPreference || !oneThingAboutMe || isLoading}
+          disabled={!name || !age || !height || !gender || !genderPreference || !oneThingAboutMe || isLoading}
         >
           {isLoading ? (
             <ActivityIndicator color={Colors.white} />
@@ -535,5 +617,34 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  heightPickerContainer: {
+    marginTop: 8,
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.lightGray,
+    maxHeight: 200,
+    overflow: 'hidden',
+  },
+  heightScrollView: {
+    maxHeight: 200,
+  },
+  heightOption: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightGray,
+  },
+  heightOptionSelected: {
+    backgroundColor: Colors.primary + '10',
+  },
+  heightOptionText: {
+    fontSize: 16,
+    color: Colors.text,
+    textAlign: 'center',
+  },
+  heightOptionTextSelected: {
+    color: Colors.primary,
+    fontWeight: '600',
   },
 });

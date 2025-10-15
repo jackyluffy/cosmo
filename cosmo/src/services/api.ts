@@ -8,7 +8,7 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.68:808
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,
+  timeout: 60000, // Increased to 60 seconds for Vision API processing
   headers: {
     'Content-Type': 'application/json',
   },
