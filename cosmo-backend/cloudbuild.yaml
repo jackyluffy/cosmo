@@ -45,7 +45,7 @@ steps:
       - '--timeout'
       - '60'
       - '--set-env-vars'
-      - 'NODE_ENV=production,PROJECT_ID=$PROJECT_ID'
+      - 'NODE_ENV=production,PROJECT_ID=$PROJECT_ID,FIREBASE_PROJECT_ID=cosmo-production-473621,GOOGLE_APPLICATION_CREDENTIALS=cosmo-firebase-key-production.json,GCLOUD_STORAGE_BUCKET=cosmo-production-473621-photos,JWT_SECRET=gMJhRKGurkCm3s2HhasQ4kKFEc+0f/L+8pYNA1K56oHIeAKhHtyHbsiRi39tXvzBVeSk8HxTxiNw0S7aPlbGhA==,GOOGLE_CLIENT_ID=691853413697-9keo426hbtj6e469cravkt04dtq5b07t.apps.googleusercontent.com,GOOGLE_IOS_CLIENT_ID=691853413697-d3r6po74rsm6ak7vdfk51a764lnk9udv.apps.googleusercontent.com,SENDGRID_API_KEY=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,STRIPE_SECRET_KEY=sk_test_51SDbm2BIocmIX82U3c22wrm7q7BStYJgZGLynCsTiAPLAiY8bksJAqFZA199hoaoypHA0T3eYVmm8ne6i3d5PDvF00KM1mHwLm'
     timeout: '300s'
 
 # Build configuration options

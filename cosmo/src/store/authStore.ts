@@ -36,6 +36,7 @@ interface AuthState {
 
   login: (phone?: string, email?: string, code?: string) => Promise<void>;
   googleSignIn: (idToken: string) => Promise<void>;
+  appleSignIn: (identityToken: string, user?: any) => Promise<void>;
   logout: () => Promise<void>;
   loadUser: () => Promise<void>;
   updateProfile: (profile: Partial<User['profile']>) => Promise<void>;
@@ -101,6 +102,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       console.error('Google Sign-In error:', error);
       set({
         error: error.response?.data?.error || error.message || 'Google authentication failed',
+        isLoading: false
+      });
+      throw error;
+    }
+  },
+
+  appleSignIn: async (identityToken: string, user?: any) => {
+    set({ isLoading: true, error: null });
+    try {
+      console.log('Apple Sign-In initiated');
+      const response = await realAPI.auth.appleSignIn(identityToken, user);
+      const { token, user: userData } = response.data.data;
+
+      // Store token
+      await AsyncStorage.setItem('auth_token', token);
+      set({ user: userData, isAuthenticated: true, isLoading: false });
+      console.log('Apple Sign-In successful');
+    } catch (error: any) {
+      console.error('Apple Sign-In error:', error);
+      set({
+        error: error.response?.data?.error || error.message || 'Apple authentication failed',
         isLoading: false
       });
       throw error;

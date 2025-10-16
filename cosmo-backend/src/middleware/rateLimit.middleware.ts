@@ -8,6 +8,16 @@ const isDevelopment = process.env.NODE_ENV === 'development';
 // No-op middleware for development
 const noopLimiter = (req: Request, res: Response, next: NextFunction) => next();
 
+// Custom key generator that works with Cloud Run's proxy
+const cloudRunKeyGenerator = (req: Request): string => {
+  // In Cloud Run, the real IP is in x-forwarded-for header
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const clientIp = typeof forwardedFor === 'string'
+    ? forwardedFor.split(',')[0].trim()
+    : req.ip || 'unknown';
+  return clientIp;
+};
+
 // Different rate limits for different endpoints
 const rateLimits = {
   auth: isDevelopment ? noopLimiter : rateLimit({
@@ -17,6 +27,7 @@ const rateLimits = {
     standardHeaders: true,
     legacyHeaders: false,
     skip: () => isDevelopment,
+    keyGenerator: cloudRunKeyGenerator,
     handler: (req: Request, res: Response) => {
       logger.warn('Rate limit exceeded:', {
         ip: req.ip,
@@ -36,6 +47,7 @@ const rateLimits = {
     standardHeaders: true,
     legacyHeaders: false,
     skip: () => isDevelopment,
+    keyGenerator: cloudRunKeyGenerator,
   }),
 
   upload: isDevelopment ? noopLimiter : rateLimit({
@@ -45,6 +57,7 @@ const rateLimits = {
     standardHeaders: true,
     legacyHeaders: false,
     skip: () => isDevelopment,
+    keyGenerator: cloudRunKeyGenerator,
   }),
 
   stripe: isDevelopment ? noopLimiter : rateLimit({
@@ -54,6 +67,7 @@ const rateLimits = {
     standardHeaders: true,
     legacyHeaders: false,
     skip: () => isDevelopment,
+    keyGenerator: cloudRunKeyGenerator,
   }),
 };
 

@@ -63,5 +63,4 @@ logs/
 # Security - Never include in image
 serviceAccount.json
 *.pem
-*.key
 *.cert

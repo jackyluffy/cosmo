@@ -98,7 +98,10 @@
       "Bash(gcloud services list:*)",
       "Bash(md5:*)",
       "Bash(npx react-native bundle:*)",
-      "Read(//private/tmp/expo-test-bundle/_expo/static/js/ios/**)"
+      "Read(//private/tmp/expo-test-bundle/_expo/static/js/ios/**)",
+      "Bash(gcloud projects get-iam-policy:*)",
+      "Bash(gcloud secrets list:*)",
+      "Bash(gcloud firestore databases describe:*)"
     ],
     "deny": [],
     "ask": []

@@ -28,7 +28,7 @@ export default function LoginScreen({ navigation }: any) {
   const [otpCode, setOtpCode] = useState('');
   const [showOtpInput, setShowOtpInput] = useState(false);
 
-  const { login, googleSignIn, isLoading, error } = useAuthStore();
+  const { login, googleSignIn, appleSignIn, isLoading, error } = useAuthStore();
 
   const handleSendOtp = async () => {
     if (!phoneNumber) {
@@ -91,8 +91,7 @@ export default function LoginScreen({ navigation }: any) {
       }
 
       console.log('Apple Sign-In successful, sending to backend...');
-      // TODO: Send identityToken to your backend
-      await googleSignIn(identityToken); // Reuse the same backend endpoint or create appleSignIn
+      await appleSignIn(identityToken, user);
       // Navigation will happen automatically based on auth state
     } catch (error: any) {
       console.error('Apple Sign-In error:', error);

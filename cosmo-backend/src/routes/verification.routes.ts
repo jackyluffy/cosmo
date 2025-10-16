@@ -9,9 +9,9 @@ const verificationController = new VerificationController();
 router.use(authenticate);
 
 // Verify selfie against profile photos
-router.post('/verify-selfie', verificationController.verifySelfie);
+router.post('/verify-selfie', verificationController.verifySelfie.bind(verificationController));
 
 // Get verification status
-router.get('/status', verificationController.getVerificationStatus);
+router.get('/status', verificationController.getVerificationStatus.bind(verificationController));
 
 export default router;

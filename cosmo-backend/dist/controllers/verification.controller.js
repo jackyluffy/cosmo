@@ -4,14 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.VerificationController = void 0;
-const vision_1 = require("@google-cloud/vision");
 const firebase_1 = __importDefault(require("../config/firebase"));
-const path_1 = __importDefault(require("path"));
-// Initialize Vision API client with credentials
-const keyFilePath = path_1.default.join(__dirname, '../../cosmo-firebase-key.json');
-const vision = new vision_1.ImageAnnotatorClient({
-    keyFilename: keyFilePath,
-});
+const visionClient_1 = require("../config/visionClient");
+const vision = (0, visionClient_1.getVisionClient)();
 class VerificationController {
     /**
      * Verify selfie against profile photos using Google Cloud Vision API

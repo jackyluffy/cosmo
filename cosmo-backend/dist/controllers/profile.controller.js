@@ -86,6 +86,15 @@ class ProfileController {
                 profileUpdates['profile.location'] = new firestore_1.GeoPoint(updates.location.lat, updates.location.lng);
                 console.log('[Profile Update] GeoPoint created:', profileUpdates['profile.location']);
             }
+            if (updates.verified !== undefined) {
+                profileUpdates['profile.verified'] = updates.verified;
+            }
+            if (updates.verificationDate) {
+                const parsedVerificationDate = new Date(updates.verificationDate);
+                if (!isNaN(parsedVerificationDate.getTime())) {
+                    profileUpdates['profile.verificationDate'] = firestore_1.Timestamp.fromDate(parsedVerificationDate);
+                }
+            }
             // Check if profile is being completed for the first time
             const userDoc = await firebase_1.db.collection(firebase_1.Collections.USERS).doc(userId).get();
             const userData = userDoc.data();

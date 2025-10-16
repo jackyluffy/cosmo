@@ -241,10 +241,15 @@ class AuthService {
      */
     static async verifyGoogleToken(idToken) {
         try {
-            const client = new google_auth_library_1.OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+            const client = new google_auth_library_1.OAuth2Client();
+            // Accept both Web and iOS client IDs
+            const audiences = [
+                process.env.GOOGLE_CLIENT_ID, // Web client ID
+                process.env.GOOGLE_IOS_CLIENT_ID, // iOS client ID
+            ].filter(Boolean);
             const ticket = await client.verifyIdToken({
                 idToken,
-                audience: process.env.GOOGLE_CLIENT_ID,
+                audience: audiences,
             });
             const payload = ticket.getPayload();
             if (!payload || !payload.email) {

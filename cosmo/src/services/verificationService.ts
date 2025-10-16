@@ -3,6 +3,11 @@ import * as FileSystem from 'expo-file-system';
 
 const SIMILARITY_THRESHOLD = 0.5; // 50% similarity threshold
 
+export interface CapturedPhotoPayload {
+  uri: string;
+  base64?: string;
+}
+
 export interface VerificationResult {
   isVerified: boolean;
   similarity: number;
@@ -12,28 +17,35 @@ export interface VerificationResult {
 
 /**
  * Verify a selfie against the user's profile photos using Google Cloud Vision API
- * @param selfieUri - The URI of the selfie image
+ * @param selfie - Captured selfie payload (URI with optional base64 string)
  * @param profilePhotos - Array of profile photo URLs
  * @returns Verification result with similarity score
  */
 export async function verifySelfie(
-  selfieUri: string,
+  selfie: CapturedPhotoPayload,
   profilePhotos: string[]
 ): Promise<VerificationResult> {
   try {
     console.log('[VerificationService] Starting verification...');
-    console.log('[VerificationService] Selfie URI:', selfieUri);
+    console.log('[VerificationService] Selfie URI:', selfie.uri);
+    console.log('[VerificationService] Has inline base64:', !!selfie.base64);
     console.log('[VerificationService] Profile photos count:', profilePhotos.length);
     console.log('[VerificationService] Profile photos:', profilePhotos);
 
-    // Convert selfie to base64
-    console.log('[VerificationService] Converting selfie to base64...');
-    const selfieBase64 = await FileSystem.readAsStringAsync(selfieUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    console.log('[VerificationService] Selfie base64 length:', selfieBase64.length);
+    // Convert selfie to base64 (prefer the inline payload from Camera)
+    let selfieBase64 = selfie.base64;
+    if (!selfieBase64) {
+      console.log('[VerificationService] No base64 on payload – reading from filesystem...');
+      selfieBase64 = await FileSystem.readAsStringAsync(selfie.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    }
 
-    // Get the API base URL for debugging
+    if (!selfieBase64) {
+      throw new Error('Unable to read captured selfie data.');
+    }
+
+    console.log('[VerificationService] Selfie base64 length:', selfieBase64.length);
     console.log('[VerificationService] API Base URL:', process.env.EXPO_PUBLIC_API_URL);
 
     // Call backend API for verification
@@ -53,7 +65,6 @@ export async function verifySelfie(
     });
 
     console.log('[VerificationService] API call completed successfully!');
-
     console.log('[VerificationService] Verification response:', response.data);
 
     const { verified, similarity, matchedPhotoIndex, message } = response.data;

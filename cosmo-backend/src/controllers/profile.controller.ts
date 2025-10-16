@@ -82,6 +82,15 @@ export class ProfileController {
         profileUpdates['profile.location'] = new GeoPoint(updates.location.lat, updates.location.lng);
         console.log('[Profile Update] GeoPoint created:', profileUpdates['profile.location']);
       }
+      if (updates.verified !== undefined) {
+        profileUpdates['profile.verified'] = updates.verified;
+      }
+      if (updates.verificationDate) {
+        const parsedVerificationDate = new Date(updates.verificationDate);
+        if (!isNaN(parsedVerificationDate.getTime())) {
+          profileUpdates['profile.verificationDate'] = Timestamp.fromDate(parsedVerificationDate);
+        }
+      }
 
       // Check if profile is being completed for the first time
       const userDoc = await db.collection(Collections.USERS).doc(userId).get();

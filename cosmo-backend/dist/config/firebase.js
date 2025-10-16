@@ -32,22 +32,105 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Buckets = exports.Collections = exports.db = void 0;
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const DEFAULT_PROJECT_ID = 'cosmo-production-473621';
+const projectId = process.env.FIREBASE_PROJECT_ID ||
+    process.env.PROJECT_ID ||
+    DEFAULT_PROJECT_ID;
+const getServiceAccountFromFile = (filePath) => {
+    const resolvedPath = path_1.default.resolve(filePath);
+    if (!fs_1.default.existsSync(resolvedPath)) {
+        throw new Error(`Firebase credentials file not found at path: ${resolvedPath}`);
+    }
+    const fileContents = fs_1.default.readFileSync(resolvedPath, 'utf8');
+    return JSON.parse(fileContents);
+};
+const getServiceAccountFromBase64 = (base64) => {
+    const json = Buffer.from(base64, 'base64').toString('utf8');
+    return JSON.parse(json);
+};
+// Determine credential source
+const base64Credentials = process.env.GOOGLE_APPLICATION_CREDENTIALS_BASE64;
+const jsonCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+const credentialsFile = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+let appOptions = {
+    projectId,
+};
+let loadedServiceAccount = null;
+try {
+    if (base64Credentials) {
+        const serviceAccount = getServiceAccountFromBase64(base64Credentials);
+        appOptions = {
+            ...appOptions,
+            projectId: serviceAccount.project_id || appOptions.projectId,
+        };
+        console.log('[Firebase] Loaded credentials from GOOGLE_APPLICATION_CREDENTIALS_BASE64');
+        if (serviceAccount.client_email) {
+            console.log('[Firebase] Service account:', serviceAccount.client_email);
+        }
+        loadedServiceAccount = serviceAccount;
+    }
+    else if (jsonCredentials) {
+        const serviceAccount = JSON.parse(jsonCredentials);
+        appOptions = {
+            ...appOptions,
+            projectId: serviceAccount.project_id || appOptions.projectId,
+        };
+        console.log('[Firebase] Loaded credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON');
+        if (serviceAccount.client_email) {
+            console.log('[Firebase] Service account:', serviceAccount.client_email);
+        }
+        loadedServiceAccount = serviceAccount;
+    }
+    else if (credentialsFile) {
+        const serviceAccount = getServiceAccountFromFile(credentialsFile);
+        appOptions = {
+            ...appOptions,
+            projectId: serviceAccount.project_id || appOptions.projectId,
+        };
+        console.log('[Firebase] Loaded credentials from GOOGLE_APPLICATION_CREDENTIALS path');
+        if (serviceAccount.client_email) {
+            console.log('[Firebase] Service account:', serviceAccount.client_email);
+        }
+        loadedServiceAccount = serviceAccount;
+    }
+    else {
+        console.log('[Firebase] Using application default credentials');
+        appOptions = {
+            ...appOptions,
+            credential: admin.credential.applicationDefault(),
+        };
+    }
+}
+catch (error) {
+    console.error('[Firebase] Failed to load credentials:', error.message);
+    throw error;
+}
 // Initialize Firebase Admin
-if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    // Use service account key file if specified
+if (loadedServiceAccount &&
+    loadedServiceAccount.project_id &&
+    loadedServiceAccount.project_id === appOptions.projectId) {
+    console.log('[Firebase] Using loaded service account for Firebase Admin');
     admin.initializeApp({
-        credential: admin.credential.applicationDefault(),
-        projectId: process.env.FIREBASE_PROJECT_ID || process.env.PROJECT_ID || 'cosmo-production-473621',
+        ...appOptions,
+        credential: admin.credential.cert(loadedServiceAccount),
     });
 }
 else {
-    // Use Application Default Credentials (ADC) in Cloud Run
+    if (loadedServiceAccount && loadedServiceAccount.project_id !== appOptions.projectId) {
+        console.warn(`[Firebase] Service account project (${loadedServiceAccount.project_id}) does not match target project (${appOptions.projectId}). Falling back to application default credentials.`);
+    }
     admin.initializeApp({
-        projectId: process.env.FIREBASE_PROJECT_ID || process.env.PROJECT_ID || 'cosmo-production-473621',
+        ...appOptions,
+        credential: admin.credential.applicationDefault(),
     });
 }
 // Get Firestore instance

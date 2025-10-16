@@ -239,10 +239,23 @@ export class AuthService {
    */
   static async verifyGoogleToken(idToken: string): Promise<{ email: string; name?: string; providerId: string }> {
     try {
-      const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+      const client = new OAuth2Client();
+      // Accept both Web and iOS client IDs
+      const audiences = [
+        process.env.GOOGLE_CLIENT_ID, // Web client ID
+        process.env.GOOGLE_IOS_CLIENT_ID, // iOS client ID
+      ].filter(Boolean);
+
+      console.log('[GOOGLE AUTH] Expected audiences:', audiences);
+
+      // First decode without verification to see the actual audience
+      const decodedToken = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+      console.log('[GOOGLE AUTH] Token audience (aud):', decodedToken.aud);
+      console.log('[GOOGLE AUTH] Token issuer (iss):', decodedToken.iss);
+
       const ticket = await client.verifyIdToken({
         idToken,
-        audience: process.env.GOOGLE_CLIENT_ID,
+        audience: audiences,
       });
 
       const payload = ticket.getPayload();

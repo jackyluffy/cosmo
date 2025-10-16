@@ -89,7 +89,7 @@ export default function CameraVerificationScreen({ navigation }: any) {
       console.log('[CameraVerification] Calling verification service...');
 
       // Call verification service
-      const result = await verifySelfie(capturedPhoto.uri, userPhotos);
+      const result = await verifySelfie(capturedPhoto, userPhotos);
 
       console.log('[CameraVerification] Verification service returned:');
       console.log('[CameraVerification]   Verified:', result.isVerified);
@@ -180,12 +180,12 @@ export default function CameraVerificationScreen({ navigation }: any) {
           <Image source={{ uri: capturedPhoto.uri }} style={styles.preview} />
         </View>
 
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.button, styles.secondaryButton]}
-            onPress={retakePicture}
-            disabled={isVerifying}
-          >
+      <View style={[styles.footer, styles.footerCaptured]}>
+        <TouchableOpacity
+          style={[styles.button, styles.secondaryButton]}
+          onPress={retakePicture}
+          disabled={isVerifying}
+        >
             <Text style={[styles.buttonText, styles.secondaryButtonText]}>
               Retake
             </Text>
@@ -242,7 +242,7 @@ export default function CameraVerificationScreen({ navigation }: any) {
         </CameraView>
       </View>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, styles.footerCapture]}>
         <View style={styles.captureButtonContainer}>
           <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
             <View style={styles.captureButtonInner} />
@@ -348,9 +348,19 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.md,
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.xl,
+  },
+  footerCaptured: {
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+    width: '100%',
+  },
+  footerCapture: {
+    justifyContent: 'center',
+    width: '100%',
   },
   button: {
     flex: 1,
@@ -396,7 +406,7 @@ const styles = StyleSheet.create({
   },
   captureButtonLabel: {
     ...Typography.body,
-    color: Colors.white,
+    color: Colors.text,
     fontWeight: '600',
     textAlign: 'center',
   },

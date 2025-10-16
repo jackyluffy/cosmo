@@ -209,4 +209,6 @@ export interface UpdateProfileRequest {
   traits?: PersonalityTraits;
   radius?: number;
   location?: { lat: number; lng: number };
+  verified?: boolean;
+  verificationDate?: string;
 }
