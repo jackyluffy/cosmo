@@ -1,16 +1,18 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from './src/store/authStore';
 import { Colors } from './src/constants/theme';
+import SplashScreenNative from './src/components/SplashScreenNative';
 
 import LoginScreen from './src/screens/auth/LoginScreen';
 import TermsOfServiceScreen from './src/screens/auth/TermsOfServiceScreen';
 import PrivacyPolicyScreen from './src/screens/auth/PrivacyPolicyScreen';
 import BasicInfoScreen from './src/screens/onboarding/BasicInfoScreen';
 import InterestsScreen from './src/screens/onboarding/InterestsScreen';
+import SubscriptionScreen from './src/screens/onboarding/SubscriptionScreen';
 import PhotoUploadScreen from './src/screens/onboarding/PhotoUploadScreen';
 import LocationScreen from './src/screens/onboarding/LocationScreen';
 import CameraVerificationScreen from './src/screens/onboarding/CameraVerificationScreen';
@@ -71,16 +73,42 @@ function OnboardingFlow() {
       <OnboardingStack.Screen name="Location" component={LocationScreen} />
       <OnboardingStack.Screen name="CameraVerification" component={CameraVerificationScreen} />
       <OnboardingStack.Screen name="Interests" component={InterestsScreen} />
+      <OnboardingStack.Screen name="Subscription" component={SubscriptionScreen} />
+      <OnboardingStack.Screen name="MainTabs" component={MainTabs} />
     </OnboardingStack.Navigator>
   );
 }
 
+const MIN_SPLASH_DURATION = 1500;
+
 export default function App() {
-  const { isAuthenticated, checkAuth, user } = useAuthStore();
+  const { isAuthenticated, checkAuth, user, isLoading } = useAuthStore();
+  const [showSplash, setShowSplash] = useState(true);
+  const splashStart = useRef(Date.now());
 
   useEffect(() => {
     checkAuth();
+    splashStart.current = Date.now();
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), MIN_SPLASH_DURATION);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading) {
+      const elapsed = Date.now() - splashStart.current;
+      const remaining = Math.max(0, MIN_SPLASH_DURATION - elapsed);
+      const timer = setTimeout(() => setShowSplash(false), remaining);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [isLoading]);
+
+  if (showSplash || (isLoading && !user)) {
+    return <SplashScreenNative />;
+  }
 
   // Check onboarding status
   const hasPhotos = !!(user?.profile?.photos && user.profile.photos.length >= 3);

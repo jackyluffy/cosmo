@@ -8,11 +8,9 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "scheme": "cosmo",
-    "jsEngine": "jsc",
+    "jsEngine": "hermes",
     "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0a0e27"
     },
     "ios": {
       "supportsTablet": true,

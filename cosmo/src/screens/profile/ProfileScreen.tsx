@@ -18,6 +18,7 @@ import { useAuthStore } from '../../store/authStore';
 import { profileAPI } from '../../services/api';
 import { Colors } from '../../constants/theme';
 import { INTEREST_CATEGORIES, getInterestEmoji } from '../../constants/interests';
+import { iapService, SubscriptionInfo } from '../../services/iapService';
 
 const { width } = Dimensions.get('window');
 const PHOTO_SIZE = (width - 60) / 3; // 3 photos per row with spacing
@@ -32,10 +33,23 @@ export default function ProfileScreen() {
   const [isEditingInterests, setIsEditingInterests] = useState(false);
   const [editedInterests, setEditedInterests] = useState<string[]>([]);
   const [newInterest, setNewInterest] = useState('');
+  const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfo | null>(null);
+  const [loadingSubscription, setLoadingSubscription] = useState(false);
 
   useEffect(() => {
     loadProfile();
+    loadSubscriptionInfo();
   }, []);
+
+  const loadSubscriptionInfo = async () => {
+    try {
+      await iapService.initialize();
+      const info = await iapService.checkSubscriptionStatus();
+      setSubscriptionInfo(info);
+    } catch (error) {
+      console.error('[ProfileScreen] Failed to load subscription:', error);
+    }
+  };
 
   // Update photos whenever user changes
   useEffect(() => {
@@ -287,11 +301,84 @@ export default function ProfileScreen() {
       </View>
 
       {/* Subscription Status */}
+      {/* Subscription Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Subscription</Text>
-        <Text style={styles.subscriptionStatus}>
-          Status: {user?.subscription?.status || 'trial'}
-        </Text>
+        <View style={styles.subscriptionCard}>
+          {subscriptionInfo?.isActive ? (
+            <>
+              <View style={styles.subscriptionActive}>
+                <Ionicons name="diamond" size={24} color={Colors.primary} />
+                <Text style={styles.subscriptionActiveText}>Premium Active</Text>
+              </View>
+              {subscriptionInfo.expirationDate && (
+                <Text style={styles.subscriptionExpiry}>
+                  Renews on {new Date(subscriptionInfo.expirationDate).toLocaleDateString()}
+                </Text>
+              )}
+              <TouchableOpacity
+                style={styles.manageButton}
+                onPress={() => {
+                  Alert.alert(
+                    'Manage Subscription',
+                    'To manage your subscription, go to Settings > Apple ID > Subscriptions on your device.',
+                    [{ text: 'OK' }]
+                  );
+                }}
+              >
+                <Text style={styles.manageButtonText}>Manage Subscription</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <View style={styles.subscriptionInactive}>
+                <Ionicons name="diamond-outline" size={24} color={Colors.textSecondary} />
+                <Text style={styles.subscriptionInactiveText}>Free Plan</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.upgradeButton}
+                onPress={async () => {
+                  try {
+                    setLoadingSubscription(true);
+                    await iapService.purchaseSubscription();
+                    await loadSubscriptionInfo();
+                  } catch (error) {
+                    console.error('Purchase error:', error);
+                  } finally {
+                    setLoadingSubscription(false);
+                  }
+                }}
+                disabled={loadingSubscription}
+              >
+                {loadingSubscription ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <Text style={styles.upgradeButtonText}>Upgrade to Premium</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.restoreButton}
+                onPress={async () => {
+                  try {
+                    setLoadingSubscription(true);
+                    await loadSubscriptionInfo();
+                    if (subscriptionInfo?.isActive) {
+                      Alert.alert('Success', 'Subscription restored!');
+                    } else {
+                      Alert.alert('No Subscription', 'No active subscription found.');
+                    }
+                  } catch (error) {
+                    Alert.alert('Error', 'Failed to restore purchase.');
+                  } finally {
+                    setLoadingSubscription(false);
+                  }
+                }}
+              >
+                <Text style={styles.restoreButtonText}>Restore Purchase</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
       </View>
 
       {/* Logout Button */}
@@ -510,6 +597,70 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.text,
     textTransform: 'capitalize',
+  },
+  subscriptionCard: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 16,
+  },
+  subscriptionActive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  subscriptionActiveText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.primary,
+  },
+  subscriptionExpiry: {
+    fontSize: 14,
+    color: Colors.gray,
+    marginBottom: 15,
+  },
+  manageButton: {
+    backgroundColor: Colors.lightGray,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  manageButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  subscriptionInactive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  subscriptionInactiveText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.textSecondary,
+  },
+  upgradeButton: {
+    backgroundColor: Colors.primary,
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  upgradeButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.white,
+  },
+  restoreButton: {
+    padding: 12,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  restoreButtonText: {
+    fontSize: 14,
+    color: Colors.primary,
   },
   logoutButton: {
     backgroundColor: Colors.white,

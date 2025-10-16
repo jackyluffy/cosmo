@@ -11,13 +11,18 @@ import {
   ScrollView,
   Animated,
   PanResponder,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
+import MultiSlider from '@ptomasroos/react-native-multi-slider';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { swipeAPI } from '../../services/api';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 120;
+const PHOTO_HEIGHT = screenHeight * 0.65;
 
 // Map interests to emojis
 const getInterestEmoji = (interest: string): string => {
@@ -77,6 +82,18 @@ const getInterestEmoji = (interest: string): string => {
   return emojiMap[lowerInterest] || '✨';
 };
 
+// Helper to convert inches to feet'inches" format
+const inchesToFeetString = (inches: number): string => {
+  const feet = Math.floor(inches / 12);
+  const remainingInches = inches % 12;
+  return `${feet}'${remainingInches}"`;
+};
+
+// Helper to convert inches to centimeters
+const inchesToCm = (inches: number): number => {
+  return Math.round(inches * 2.54);
+};
+
 interface Profile {
   id: string;
   name: string;
@@ -89,19 +106,71 @@ interface Profile {
   height?: string;
   occupation?: string;
   education?: string;
+  ethnicity?: string;
+  datingIntention?: string;
 }
+
+interface FilterOptions {
+  minAge?: number;
+  maxAge?: number;
+  gender?: string[];
+  minHeight?: number;
+  maxHeight?: number;
+  maxDistance?: number;
+  ethnicity?: string[];
+  datingIntention?: string[];
+}
+
+const DEFAULT_FILTERS: FilterOptions = {
+  minAge: 18,
+  maxAge: 35,
+  minHeight: 60,
+  maxHeight: 77,
+  maxDistance: 50,
+};
 
 export default function SwipeScreen() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [filters, setFilters] = useState<FilterOptions>({ ...DEFAULT_FILTERS });
+  const [draftFilters, setDraftFilters] = useState<FilterOptions>({ ...DEFAULT_FILTERS });
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [isPhotoInteracting, setIsPhotoInteracting] = useState(false);
 
+  const insets = useSafeAreaInsets();
   const position = useRef(new Animated.ValueXY()).current;
-  const swipeDirection = useRef<'left' | 'right' | null>(null);
+  const isPhotoInteractingRef = useRef(false);
+
+  useEffect(() => {
+    isPhotoInteractingRef.current = isPhotoInteracting;
+  }, [isPhotoInteracting]);
 
   useEffect(() => {
     loadProfiles();
-  }, []);
+  }, [filters]);
+
+  useEffect(() => {
+    if (filterModalVisible) {
+      setDraftFilters({
+        minAge: filters.minAge,
+        maxAge: filters.maxAge,
+        minHeight: filters.minHeight,
+        maxHeight: filters.maxHeight,
+        maxDistance: filters.maxDistance,
+        gender: filters.gender ? [...filters.gender] : undefined,
+        ethnicity: filters.ethnicity ? [...filters.ethnicity] : undefined,
+        datingIntention: filters.datingIntention ? [...filters.datingIntention] : undefined,
+      });
+    }
+  }, [filterModalVisible, filters]);
+
+  useEffect(() => {
+    // Reset photo index when card changes
+    setCurrentPhotoIndex(0);
+    setIsPhotoInteracting(false);
+  }, [currentIndex]);
 
   const loadProfiles = async () => {
     try {
@@ -136,6 +205,8 @@ export default function SwipeScreen() {
         const height = p.profile?.height ? String(p.profile.height) : undefined;
         const occupation = p.profile?.occupation ? String(p.profile.occupation) : undefined;
         const education = p.profile?.education ? String(p.profile.education) : undefined;
+        const ethnicity = p.profile?.ethnicity ? String(p.profile.ethnicity) : undefined;
+        const datingIntention = p.profile?.datingIntention ? String(p.profile.datingIntention) : undefined;
 
         return {
           id,
@@ -149,11 +220,17 @@ export default function SwipeScreen() {
           height,
           occupation,
           education,
+          ethnicity,
+          datingIntention,
         };
       });
 
       console.log('[SwipeScreen] Mapped profiles:', mappedProfiles.length);
-      setProfiles(mappedProfiles);
+
+      // Apply filters
+      const filteredProfiles = applyFilters(mappedProfiles);
+
+      setProfiles(filteredProfiles);
       setCurrentIndex(0);
     } catch (error) {
       console.error('[SwipeScreen] Failed to load profiles:', error);
@@ -161,6 +238,43 @@ export default function SwipeScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const applyFilters = (profiles: Profile[]): Profile[] => {
+    return profiles.filter(profile => {
+      // Age filter
+      if (filters.minAge && profile.age < filters.minAge) return false;
+      if (filters.maxAge && profile.age > filters.maxAge) return false;
+
+      // Gender filter
+      if (filters.gender && filters.gender.length > 0 && profile.gender) {
+        if (!filters.gender.includes(profile.gender)) return false;
+      }
+
+      // Height filter
+      if (filters.minHeight || filters.maxHeight) {
+        if (profile.height) {
+          const heightInInches = parseInt(profile.height.replace(/[^0-9]/g, ''));
+          if (filters.minHeight && heightInInches < filters.minHeight) return false;
+          if (filters.maxHeight && heightInInches > filters.maxHeight) return false;
+        }
+      }
+
+      // Distance filter
+      if (filters.maxDistance && profile.distance > filters.maxDistance) return false;
+
+      // Ethnicity filter
+      if (filters.ethnicity && filters.ethnicity.length > 0 && profile.ethnicity) {
+        if (!filters.ethnicity.includes(profile.ethnicity)) return false;
+      }
+
+      // Dating intention filter
+      if (filters.datingIntention && filters.datingIntention.length > 0 && profile.datingIntention) {
+        if (!filters.datingIntention.includes(profile.datingIntention)) return false;
+      }
+
+      return true;
+    });
   };
 
   const handleSwipe = async (direction: 'left' | 'right') => {
@@ -173,15 +287,13 @@ export default function SwipeScreen() {
       console.error('Failed to record swipe:', error);
     }
 
-    // Move to next card
-    setTimeout(() => {
-      if (currentIndex === profiles.length - 1) {
-        loadProfiles();
-      } else {
-        setCurrentIndex(currentIndex + 1);
-        position.setValue({ x: 0, y: 0 });
-      }
-    }, 300);
+    // Immediately move to next card (no blank screen)
+    if (currentIndex === profiles.length - 1) {
+      loadProfiles();
+    } else {
+      setCurrentIndex(currentIndex + 1);
+      position.setValue({ x: 0, y: 0 });
+    }
   };
 
   const swipeLeft = () => {
@@ -202,11 +314,21 @@ export default function SwipeScreen() {
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => !isPhotoInteractingRef.current,
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        !isPhotoInteractingRef.current && Math.abs(gesture.dx) > Math.abs(gesture.dy),
       onPanResponderMove: (_, gesture) => {
+        if (isPhotoInteractingRef.current) return;
         position.setValue({ x: gesture.dx, y: gesture.dy });
       },
       onPanResponderRelease: (_, gesture) => {
+        if (isPhotoInteractingRef.current) {
+          Animated.spring(position, {
+            toValue: { x: 0, y: 0 },
+            useNativeDriver: false,
+          }).start();
+          return;
+        }
         if (gesture.dx > SWIPE_THRESHOLD) {
           swipeRight();
         } else if (gesture.dx < -SWIPE_THRESHOLD) {
@@ -221,8 +343,36 @@ export default function SwipeScreen() {
     })
   ).current;
 
+  const toggleGender = (gender: string) => {
+    const current = draftFilters.gender || [];
+    if (current.includes(gender)) {
+      setDraftFilters({ ...draftFilters, gender: current.filter(g => g !== gender) });
+    } else {
+      setDraftFilters({ ...draftFilters, gender: [...current, gender] });
+    }
+  };
+
+  const toggleEthnicity = (ethnicity: string) => {
+    const current = draftFilters.ethnicity || [];
+    if (current.includes(ethnicity)) {
+      setDraftFilters({ ...draftFilters, ethnicity: current.filter(e => e !== ethnicity) });
+    } else {
+      setDraftFilters({ ...draftFilters, ethnicity: [...current, ethnicity] });
+    }
+  };
+
+  const toggleDatingIntention = (intention: string) => {
+    const current = draftFilters.datingIntention || [];
+    if (current.includes(intention)) {
+      setDraftFilters({ ...draftFilters, datingIntention: current.filter(i => i !== intention) });
+    } else {
+      setDraftFilters({ ...draftFilters, datingIntention: [...current, intention] });
+    }
+  };
+
   const renderCard = (profile: Profile, index: number) => {
-    if (!profile || index !== currentIndex) return null;
+    // Render current and next card for smooth transitions
+    if (index > currentIndex + 1 || index < currentIndex) return null;
 
     const photos = profile.photos.length > 0 ? profile.photos : ['https://via.placeholder.com/400'];
 
@@ -244,96 +394,141 @@ export default function SwipeScreen() {
       extrapolate: 'clamp',
     });
 
+    const isCurrentCard = index === currentIndex;
+
     return (
       <Animated.View
         key={profile.id}
         style={[
           styles.card,
           {
-            transform: [
-              { translateX: position.x },
-              { translateY: position.y },
-              { rotate },
-            ],
+            transform: isCurrentCard
+              ? [
+                  { translateX: position.x },
+                  { translateY: position.y },
+                  { rotate },
+                ]
+              : [],
+            zIndex: isCurrentCard ? 10 : 1,
           },
         ]}
-        {...panResponder.panHandlers}
+        {...(isCurrentCard && !isPhotoInteracting ? panResponder.panHandlers : {})}
       >
-        {/* Swipe Overlays */}
-        <Animated.View style={[styles.swipeOverlay, styles.likeOverlay, { opacity: likeOpacity }]}>
-          <Text style={styles.overlayText}>LIKE</Text>
-        </Animated.View>
-        <Animated.View style={[styles.swipeOverlay, styles.nopeOverlay, { opacity: nopeOpacity }]}>
-          <Text style={styles.overlayText}>SKIP</Text>
-        </Animated.View>
+        {/* Photo indicator (always show on current card) */}
+        {isCurrentCard && photos.length > 1 && (
+          <View style={styles.photoIndicator}>
+            <Text style={styles.photoIndicatorText}>
+              {currentPhotoIndex + 1}/{photos.length}
+            </Text>
+          </View>
+        )}
 
-        {/* Photo Carousel */}
+        {/* Swipe Overlays (only on current card) */}
+        {isCurrentCard && (
+          <>
+            <Animated.View style={[styles.swipeOverlay, styles.likeOverlay, { opacity: likeOpacity }]}>
+              <Text style={styles.overlayText}>LIKE</Text>
+            </Animated.View>
+            <Animated.View style={[styles.swipeOverlay, styles.nopeOverlay, { opacity: nopeOpacity }]}>
+              <Text style={styles.overlayText}>SKIP</Text>
+            </Animated.View>
+          </>
+        )}
+
+        {/* Vertical ScrollView for all photos */}
         <ScrollView
-          horizontal
+          showsVerticalScrollIndicator={false}
+          style={styles.photoScrollView}
+          scrollEventThrottle={16}
           pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          style={styles.photoCarousel}
+          snapToInterval={PHOTO_HEIGHT}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          bounces={false}
+          contentContainerStyle={styles.photoScrollContent}
+          onScrollBeginDrag={() => setIsPhotoInteracting(true)}
+          onScrollEndDrag={() => setIsPhotoInteracting(false)}
+          onMomentumScrollEnd={(e) => {
+            setIsPhotoInteracting(false);
+            if (!isCurrentCard) return;
+            const offsetY = e.nativeEvent.contentOffset.y;
+            const index = Math.round(offsetY / PHOTO_HEIGHT);
+            setCurrentPhotoIndex(Math.min(Math.max(index, 0), Math.max(photos.length - 1, 0)));
+          }}
         >
           {photos.map((photoUrl, idx) => (
-            <Image
-              key={idx}
-              source={{ uri: photoUrl }}
-              style={styles.photo}
-              resizeMode="cover"
-            />
-          ))}
-        </ScrollView>
+            <View key={idx} style={styles.photoContainer}>
+              <Image
+                source={{ uri: photoUrl }}
+                style={styles.photo}
+                resizeMode="cover"
+              />
+              {/* Profile Info Overlay on First Photo */}
+              {idx === 0 && isCurrentCard && (
+                <View style={styles.profileOverlay}>
+                  <View style={styles.overlayContent}>
+                    <Text style={styles.overlayName}>
+                      {profile.name}, {profile.age}
+                    </Text>
 
-        {/* Profile Info Overlay */}
-        <View style={styles.profileOverlay}>
-          <View style={styles.nameRow}>
-            <Text style={styles.cardName}>
-              {profile.name}, {profile.age}
-            </Text>
-          </View>
+                    <View style={styles.overlayDetails}>
+                      {profile.gender && (
+                        <View style={styles.overlayDetailItem}>
+                          <Ionicons name="person-outline" size={14} color={Colors.white} />
+                          <Text style={styles.overlayDetailText}>
+                            {profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1)}
+                          </Text>
+                        </View>
+                      )}
+                      {profile.height && (
+                        <View style={styles.overlayDetailItem}>
+                          <Ionicons name="resize-outline" size={14} color={Colors.white} />
+                          <Text style={styles.overlayDetailText}>{profile.height}</Text>
+                        </View>
+                      )}
+                      <View style={styles.overlayDetailItem}>
+                        <Ionicons name="location-outline" size={14} color={Colors.white} />
+                        <Text style={styles.overlayDetailText}>{profile.distance} miles away</Text>
+                      </View>
+                    </View>
 
-          <View style={styles.detailsRow}>
-            {profile.gender && (
-              <View style={styles.detailItem}>
-                <Ionicons name="person-outline" size={16} color={Colors.white} />
-                <Text style={styles.detailText}>
-                  {profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1)}
-                </Text>
-              </View>
-            )}
-            <View style={styles.detailItem}>
-              <Ionicons name="location-outline" size={16} color={Colors.white} />
-              <Text style={styles.detailText}>{profile.distance} miles away</Text>
-            </View>
-          </View>
+                    {profile.occupation && (
+                      <View style={styles.overlayDetailItem}>
+                        <Ionicons name="briefcase-outline" size={14} color={Colors.white} />
+                        <Text style={styles.overlayDetailText}>{profile.occupation}</Text>
+                      </View>
+                    )}
 
-          {profile.bio && (
-            <Text style={styles.cardBio} numberOfLines={2}>
-              {profile.bio}
-            </Text>
-          )}
+                    {profile.datingIntention && (
+                      <View style={styles.overlayDetailItem}>
+                        <Ionicons name="heart-outline" size={14} color={Colors.white} />
+                        <Text style={styles.overlayDetailText}>{profile.datingIntention}</Text>
+                      </View>
+                    )}
 
-          {profile.interests && profile.interests.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.interestsScroll}
-            >
-              {profile.interests.slice(0, 5).map((interest, idx) => (
-                <View key={idx} style={styles.interestChip}>
-                  <Text style={styles.interestText}>
-                    {getInterestEmoji(interest)} {interest}
-                  </Text>
-                </View>
-              ))}
-              {profile.interests.length > 5 && (
-                <View style={styles.interestChip}>
-                  <Text style={styles.interestText}>+{profile.interests.length - 5}</Text>
+                    {profile.bio && (
+                      <Text style={styles.overlayBio}>
+                        {profile.bio}
+                      </Text>
+                    )}
+
+                    {profile.interests && profile.interests.length > 0 && (
+                      <View style={styles.overlayInterests}>
+                        {profile.interests.map((interest, interestIdx) => (
+                          <View key={interestIdx} style={styles.overlayInterestChip}>
+                            <Text style={styles.overlayInterestText}>
+                              {getInterestEmoji(interest)} {interest}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
                 </View>
               )}
-            </ScrollView>
-          )}
-        </View>
+            </View>
+          ))}
+        </ScrollView>
       </Animated.View>
     );
   };
@@ -362,14 +557,20 @@ export default function SwipeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Discover</Text>
-      </View>
+      {/* Filter button only (top left) */}
+      <TouchableOpacity
+        style={[styles.filterButton, { top: insets.top + Spacing.lg }]}
+        onPress={() => setFilterModalVisible(true)}
+      >
+        <Ionicons name="options-outline" size={24} color={Colors.white} />
+      </TouchableOpacity>
 
+      {/* Card Container - full screen */}
       <View style={styles.cardContainer}>
         {profiles.map((profile, index) => renderCard(profile, index))}
       </View>
 
+      {/* Action Buttons */}
       <View style={styles.buttonsContainer}>
         <TouchableOpacity style={[styles.button, styles.skipButton]} onPress={swipeLeft}>
           <Ionicons name="close" size={32} color={Colors.error} />
@@ -379,6 +580,193 @@ export default function SwipeScreen() {
           <Ionicons name="heart" size={32} color={Colors.success} />
         </TouchableOpacity>
       </View>
+
+      {/* Filter Modal */}
+      <Modal
+        visible={filterModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setFilterModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filters</Text>
+              <TouchableOpacity onPress={() => setFilterModalVisible(false)}>
+                <Ionicons name="close" size={28} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.filterScroll}>
+              {/* Age Filter */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterLabel}>Age: {draftFilters.minAge ?? 18} - {draftFilters.maxAge ?? 35}</Text>
+                <MultiSlider
+                  values={[
+                    draftFilters.minAge ?? DEFAULT_FILTERS.minAge!,
+                    draftFilters.maxAge ?? DEFAULT_FILTERS.maxAge!,
+                  ]}
+                  min={18}
+                  max={50}
+                  step={1}
+                  onValuesChange={([min, max]) =>
+                    setDraftFilters({
+                      ...draftFilters,
+                      minAge: Math.min(min, max),
+                      maxAge: Math.max(min, max),
+                    })
+                  }
+                  selectedStyle={styles.sliderSelectedTrack}
+                  unselectedStyle={styles.sliderUnselectedTrack}
+                  markerStyle={styles.sliderMarker}
+                  containerStyle={styles.rangeSliderContainer}
+                />
+              </View>
+
+              {/* Gender Filter */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterLabel}>Gender</Text>
+                <View style={styles.chipContainer}>
+                  {['male', 'female', 'non-binary'].map((gender) => (
+                    <TouchableOpacity
+                      key={gender}
+                      style={[
+                        styles.filterChip,
+                        (draftFilters.gender || []).includes(gender) && styles.filterChipSelected,
+                      ]}
+                      onPress={() => toggleGender(gender)}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          (draftFilters.gender || []).includes(gender) && styles.filterChipTextSelected,
+                        ]}
+                      >
+                        {gender.charAt(0).toUpperCase() + gender.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Height Filter */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterLabel}>
+                  Height: {inchesToFeetString(draftFilters.minHeight || 60)} ({inchesToCm(draftFilters.minHeight || 60)}cm) - {inchesToFeetString(draftFilters.maxHeight || 77)} ({inchesToCm(draftFilters.maxHeight || 77)}cm)
+                </Text>
+                <MultiSlider
+                  values={[
+                    draftFilters.minHeight ?? DEFAULT_FILTERS.minHeight!,
+                    draftFilters.maxHeight ?? DEFAULT_FILTERS.maxHeight!,
+                  ]}
+                  min={60}
+                  max={77}
+                  step={1}
+                  onValuesChange={([min, max]) =>
+                    setDraftFilters({
+                      ...draftFilters,
+                      minHeight: Math.min(min, max),
+                      maxHeight: Math.max(min, max),
+                    })
+                  }
+                  selectedStyle={styles.sliderSelectedTrack}
+                  unselectedStyle={styles.sliderUnselectedTrack}
+                  markerStyle={styles.sliderMarker}
+                  containerStyle={styles.rangeSliderContainer}
+                />
+              </View>
+
+              {/* Distance Filter */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterLabel}>Maximum Distance: {draftFilters.maxDistance || 50} miles</Text>
+                <Slider
+                  style={styles.slider}
+                  minimumValue={1}
+                  maximumValue={100}
+                  step={1}
+                  value={draftFilters.maxDistance || 50}
+                  onValueChange={(value) => setDraftFilters({ ...draftFilters, maxDistance: value })}
+                  minimumTrackTintColor={Colors.primary}
+                  maximumTrackTintColor={Colors.lightGray}
+                />
+              </View>
+
+              {/* Ethnicity Filter */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterLabel}>Ethnicity</Text>
+                <View style={styles.chipContainer}>
+                  {['Asian', 'Black', 'Hispanic', 'White', 'Mixed', 'Other'].map((ethnicity) => (
+                    <TouchableOpacity
+                      key={ethnicity}
+                      style={[
+                        styles.filterChip,
+                        (draftFilters.ethnicity || []).includes(ethnicity) && styles.filterChipSelected,
+                      ]}
+                      onPress={() => toggleEthnicity(ethnicity)}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          (draftFilters.ethnicity || []).includes(ethnicity) && styles.filterChipTextSelected,
+                        ]}
+                      >
+                        {ethnicity}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Dating Intention Filter */}
+              <View style={styles.filterSection}>
+                <Text style={styles.filterLabel}>Dating Intentions</Text>
+                <View style={styles.chipContainer}>
+                  {['Long-term relationship', 'Casual dating', 'Friendship', 'Not sure yet'].map((intention) => (
+                    <TouchableOpacity
+                      key={intention}
+                      style={[
+                        styles.filterChip,
+                        (draftFilters.datingIntention || []).includes(intention) && styles.filterChipSelected,
+                      ]}
+                      onPress={() => toggleDatingIntention(intention)}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          (draftFilters.datingIntention || []).includes(intention) && styles.filterChipTextSelected,
+                        ]}
+                      >
+                        {intention}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.clearButton]}
+                onPress={() => {
+                  setDraftFilters({ ...DEFAULT_FILTERS });
+                  setFilters({ ...DEFAULT_FILTERS });
+                }}
+              >
+                <Text style={styles.clearButtonText}>Clear All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.applyButton]}
+                onPress={() => {
+                  setFilters({ ...draftFilters });
+                  setFilterModalVisible(false);
+                }}
+              >
+                <Text style={styles.applyButtonText}>Apply</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -388,15 +776,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  header: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  headerTitle: {
-    ...Typography.h2,
-    textAlign: 'center',
+  filterButton: {
+    position: 'absolute',
+    left: 20,
+    zIndex: 200,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: Colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
   loadingContainer: {
     flex: 1,
@@ -443,10 +837,9 @@ const styles = StyleSheet.create({
   },
   card: {
     position: 'absolute',
-    width: screenWidth * 0.9,
-    height: screenHeight * 0.7,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.black,
+    width: screenWidth,
+    height: screenHeight * 0.85,
+    backgroundColor: Colors.white,
     shadowColor: Colors.black,
     shadowOffset: {
       width: 0,
@@ -457,10 +850,25 @@ const styles = StyleSheet.create({
     elevation: 5,
     overflow: 'hidden',
   },
+  photoIndicator: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 50,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.round,
+  },
+  photoIndicatorText: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   swipeOverlay: {
     position: 'absolute',
-    top: 50,
-    zIndex: 10,
+    top: 100,
+    zIndex: 100,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 10,
@@ -481,74 +889,88 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Colors.white,
   },
-  photoCarousel: {
+  photoScrollView: {
     flex: 1,
   },
+  photoScrollContent: {
+    flexGrow: 0,
+  },
+  photoContainer: {
+    position: 'relative',
+    height: PHOTO_HEIGHT,
+  },
   photo: {
-    width: screenWidth * 0.9,
-    height: '100%',
+    width: screenWidth,
+    height: PHOTO_HEIGHT,
   },
   profileOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    padding: Spacing.lg,
-    paddingBottom: Spacing.xl,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    paddingTop: 60,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
   },
-  nameRow: {
-    marginBottom: Spacing.xs,
+  overlayContent: {
+    gap: 8,
   },
-  cardName: {
-    fontSize: 28,
+  overlayName: {
+    fontSize: 32,
     fontWeight: 'bold',
     color: Colors.white,
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-  detailsRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    marginBottom: Spacing.sm,
+  overlayBio: {
+    fontSize: 15,
+    color: Colors.white,
+    lineHeight: 22,
   },
-  detailItem: {
+  overlayInterests: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+  },
+  overlayInterestChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.round,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+  },
+  overlayInterestText: {
+    fontSize: 13,
+    color: Colors.white,
+    fontWeight: '600',
+  },
+  overlayDetails: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  overlayDetailItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  detailText: {
+  overlayDetailText: {
     fontSize: 14,
     color: Colors.white,
     fontWeight: '500',
-  },
-  cardBio: {
-    fontSize: 15,
-    color: Colors.white,
-    marginBottom: Spacing.sm,
-    lineHeight: 20,
-  },
-  interestsScroll: {
-    marginTop: Spacing.xs,
-  },
-  interestChip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: BorderRadius.round,
-    marginRight: Spacing.xs,
-  },
-  interestText: {
-    fontSize: 13,
-    color: Colors.text,
-    fontWeight: '600',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   buttonsContainer: {
+    position: 'absolute',
+    bottom: 30,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: Spacing.lg,
     gap: Spacing.xl,
   },
   button: {
@@ -563,7 +985,7 @@ const styles = StyleSheet.create({
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.2,
     shadowRadius: 3.84,
     elevation: 5,
   },
@@ -574,5 +996,124 @@ const styles = StyleSheet.create({
   likeButton: {
     borderWidth: 2,
     borderColor: Colors.success,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    paddingTop: Spacing.lg,
+    maxHeight: screenHeight * 0.85,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  modalTitle: {
+    ...Typography.h2,
+  },
+  filterScroll: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.lg,
+  },
+  filterSection: {
+    marginBottom: Spacing.xl,
+  },
+  filterLabel: {
+    ...Typography.body,
+    fontWeight: '600',
+    marginBottom: Spacing.sm,
+    color: Colors.text,
+  },
+  slider: {
+    flex: 1,
+    height: 40,
+  },
+  rangeSliderContainer: {
+    marginHorizontal: Spacing.md,
+  },
+  sliderSelectedTrack: {
+    backgroundColor: Colors.primary,
+  },
+  sliderUnselectedTrack: {
+    backgroundColor: Colors.lightGray,
+  },
+  sliderMarker: {
+    height: 24,
+    width: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.white,
+    shadowColor: Colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  chipContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  filterChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.round,
+    backgroundColor: Colors.lightGray,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  filterChipSelected: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  filterChipText: {
+    fontSize: 14,
+    color: Colors.text,
+    fontWeight: '500',
+  },
+  filterChipTextSelected: {
+    color: Colors.white,
+    fontWeight: '600',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+  },
+  clearButton: {
+    backgroundColor: Colors.lightGray,
+  },
+  clearButtonText: {
+    ...Typography.body,
+    color: Colors.text,
+    fontWeight: '600',
+  },
+  applyButton: {
+    backgroundColor: Colors.primary,
+  },
+  applyButtonText: {
+    ...Typography.body,
+    color: Colors.white,
+    fontWeight: '600',
   },
 });

@@ -64,10 +64,12 @@ export default function InterestsScreen({ navigation }: any) {
       console.log('[InterestsScreen] Reloading user data...');
       await loadUser();
 
-      console.log('[InterestsScreen] Onboarding complete - profile updated with interests');
+      console.log('[InterestsScreen] Interests saved, navigating to subscription screen');
 
-      // Don't set isSubmitting to false - let the app navigate to main screen
-      // The component will unmount anyway
+      // Navigate to subscription screen
+      navigation.navigate('Subscription');
+
+      setIsSubmitting(false)
     } catch (error: any) {
       console.error('[InterestsScreen] Failed to save interests:', error);
       setIsSubmitting(false);
