@@ -55,7 +55,24 @@ const googleAuthSchema = Joi.object({
 
 const appleAuthSchema = Joi.object({
   identityToken: Joi.string().required(),
-  user: Joi.object().optional(),
+  user: Joi.alternatives()
+    .try(
+      Joi.object({
+        id: Joi.string().optional(),
+        user: Joi.string().optional(),
+        email: Joi.string().email().optional(),
+        fullName: Joi.object({
+          givenName: Joi.string().allow('', null),
+          familyName: Joi.string().allow('', null),
+          middleName: Joi.string().allow('', null),
+          nickname: Joi.string().allow('', null),
+          namePrefix: Joi.string().allow('', null),
+          nameSuffix: Joi.string().allow('', null),
+        }).optional(),
+      }).unknown(true),
+      Joi.string()
+    )
+    .optional(),
 });
 
 // OAuth routes

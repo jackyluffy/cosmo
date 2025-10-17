@@ -32,7 +32,21 @@ const googleAuthSchema = joi_1.default.object({
 });
 const appleAuthSchema = joi_1.default.object({
     identityToken: joi_1.default.string().required(),
-    user: joi_1.default.object().optional(),
+    user: joi_1.default.alternatives()
+        .try(joi_1.default.object({
+        id: joi_1.default.string().optional(),
+        user: joi_1.default.string().optional(),
+        email: joi_1.default.string().email().optional(),
+        fullName: joi_1.default.object({
+            givenName: joi_1.default.string().allow('', null),
+            familyName: joi_1.default.string().allow('', null),
+            middleName: joi_1.default.string().allow('', null),
+            nickname: joi_1.default.string().allow('', null),
+            namePrefix: joi_1.default.string().allow('', null),
+            nameSuffix: joi_1.default.string().allow('', null),
+        }).optional(),
+    }).unknown(true), joi_1.default.string())
+        .optional(),
 });
 // OAuth routes
 router.post('/google', (0, validation_middleware_1.validateRequest)(googleAuthSchema), auth_controller_1.AuthController.googleAuth);

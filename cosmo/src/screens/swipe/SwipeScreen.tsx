@@ -138,16 +138,11 @@ export default function SwipeScreen() {
   const [filters, setFilters] = useState<FilterOptions>({ ...DEFAULT_FILTERS });
   const [draftFilters, setDraftFilters] = useState<FilterOptions>({ ...DEFAULT_FILTERS });
   const [photoIndices, setPhotoIndices] = useState<Record<string, number>>({});
-  const [isPhotoInteracting, setIsPhotoInteracting] = useState(false);
 
   const insets = useSafeAreaInsets();
   const position = useRef(new Animated.ValueXY()).current;
   const isPhotoInteractingRef = useRef(false);
   const flatListRefs = useRef<Record<string, FlatList<string> | null>>({});
-
-  useEffect(() => {
-    isPhotoInteractingRef.current = isPhotoInteracting;
-  }, [isPhotoInteracting]);
 
   useEffect(() => {
     loadProfiles();
@@ -175,7 +170,7 @@ export default function SwipeScreen() {
         prev[currentProfile.id] === undefined ? { ...prev, [currentProfile.id]: 0 } : prev
       );
     }
-    setIsPhotoInteracting(false);
+    isPhotoInteractingRef.current = false;
   }, [currentIndex, profiles]);
 
   useEffect(() => {
@@ -199,7 +194,7 @@ export default function SwipeScreen() {
         console.warn('[SwipeScreen] Failed to reset photo position:', error);
       }
     });
-  }, [currentIndex, profiles, photoIndices]);
+  }, [currentIndex, profiles]);
 
   const loadProfiles = async () => {
     try {
@@ -381,7 +376,7 @@ export default function SwipeScreen() {
         return false;
       }
       if (isHorizontalSwipe) {
-        setIsPhotoInteracting(false);
+        isPhotoInteractingRef.current = false;
         return true;
       }
       return false;
@@ -397,6 +392,7 @@ export default function SwipeScreen() {
     },
     onPanResponderRelease: (_, gesture) => {
       if (isPhotoInteractingRef.current) {
+        isPhotoInteractingRef.current = false;
         Animated.spring(position, {
           toValue: { x: 0, y: 0 },
           useNativeDriver: false,
@@ -423,6 +419,13 @@ export default function SwipeScreen() {
           useNativeDriver: false,
         }).start();
       }
+    },
+    onPanResponderTerminate: () => {
+      isPhotoInteractingRef.current = false;
+      Animated.spring(position, {
+        toValue: { x: 0, y: 0 },
+        useNativeDriver: false,
+      }).start();
     },
   });
 
@@ -539,11 +542,17 @@ export default function SwipeScreen() {
           showsVerticalScrollIndicator={true}
           style={styles.photoList}
           scrollEnabled={isCurrentCard}
-          onScrollBeginDrag={() => setIsPhotoInteracting(true)}
-          onScrollEndDrag={() => setIsPhotoInteracting(false)}
-          onMomentumScrollBegin={() => setIsPhotoInteracting(true)}
+          onScrollBeginDrag={() => {
+            isPhotoInteractingRef.current = true;
+          }}
+          onScrollEndDrag={() => {
+            isPhotoInteractingRef.current = false;
+          }}
+          onMomentumScrollBegin={() => {
+            isPhotoInteractingRef.current = true;
+          }}
           onMomentumScrollEnd={(e) => {
-            setIsPhotoInteracting(false);
+            isPhotoInteractingRef.current = false;
             if (!isCurrentCard) return;
             const offsetY = e.nativeEvent.contentOffset.y;
             const index = Math.round(offsetY / PHOTO_HEIGHT);

@@ -84,14 +84,24 @@ export default function LoginScreen({ navigation }: any) {
         ],
       });
 
-      const { identityToken, user } = appleAuthRequestResponse;
+      const {
+        identityToken,
+        user: appleUserId,
+        fullName,
+        email: appleEmail,
+      } = appleAuthRequestResponse;
 
       if (!identityToken) {
         throw new Error('No identity token received from Apple');
       }
 
       console.log('Apple Sign-In successful, sending to backend...');
-      await appleSignIn(identityToken, user);
+      const appleUserPayload = {
+        id: appleUserId,
+        email: appleEmail,
+        fullName,
+      };
+      await appleSignIn(identityToken, appleUserPayload);
       // Navigation will happen automatically based on auth state
     } catch (error: any) {
       console.error('Apple Sign-In error:', error);

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -111,31 +111,34 @@ function OnboardingFlow() {
 const MIN_SPLASH_DURATION = 1500;
 
 export default function App() {
-  const { isAuthenticated, checkAuth, user, isLoading } = useAuthStore();
-  const [showSplash, setShowSplash] = useState(true);
-  const splashStart = useRef(Date.now());
+  const { isAuthenticated, checkAuth, user } = useAuthStore();
+  const [isAuthCheckComplete, setIsAuthCheckComplete] = useState(false);
+  const [minSplashElapsed, setMinSplashElapsed] = useState(false);
 
   useEffect(() => {
-    checkAuth();
-    splashStart.current = Date.now();
-  }, []);
+    let isMounted = true;
+
+    (async () => {
+      try {
+        await checkAuth();
+      } finally {
+        if (isMounted) {
+          setIsAuthCheckComplete(true);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [checkAuth]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), MIN_SPLASH_DURATION);
+    const timer = setTimeout(() => setMinSplashElapsed(true), MIN_SPLASH_DURATION);
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    if (!isLoading) {
-      const elapsed = Date.now() - splashStart.current;
-      const remaining = Math.max(0, MIN_SPLASH_DURATION - elapsed);
-      const timer = setTimeout(() => setShowSplash(false), remaining);
-      return () => clearTimeout(timer);
-    }
-    return undefined;
-  }, [isLoading]);
-
-  if (showSplash || (isLoading && !user)) {
+  if (!isAuthCheckComplete || !minSplashElapsed) {
     return <SplashScreenNative />;
   }
 

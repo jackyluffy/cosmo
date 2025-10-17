@@ -24,7 +24,7 @@ const { width } = Dimensions.get('window');
 const PHOTO_SIZE = (width - 60) / 3; // 3 photos per row with spacing
 
 export default function ProfileScreen() {
-  const { user, loadUser, logout } = useAuthStore();
+  const { user, loadUser, logout, updateProfile } = useAuthStore();
   const [photos, setPhotos] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -176,30 +176,67 @@ export default function ProfileScreen() {
   };
 
   const openInterestsEditor = () => {
-    setEditedInterests(user?.profile?.interests || []);
+    const rawInterests = user?.profile?.interests;
+    const normalizedInterests = Array.isArray(rawInterests)
+      ? Array.from(
+          new Set(
+            rawInterests
+              .map((interest: any) => {
+                if (typeof interest === 'string') {
+                  return interest.trim();
+                }
+                if (interest && typeof interest === 'object') {
+                  const label =
+                    interest.label ||
+                    interest.name ||
+                    interest.id ||
+                    interest.value ||
+                    '';
+                  return String(label).trim();
+                }
+                return '';
+              })
+              .filter(Boolean)
+          )
+        )
+      : [];
+
+    setEditedInterests(normalizedInterests);
     setIsEditingInterests(true);
   };
 
   const toggleInterest = useCallback((interest: string) => {
+    const normalizedInterest = interest.trim();
     setEditedInterests(prev => {
-      if (prev.includes(interest)) {
-        return prev.filter(i => i !== interest);
+      if (prev.includes(normalizedInterest)) {
+        return prev.filter(i => i !== normalizedInterest);
       } else {
-        return [...prev, interest];
+        return [...prev, normalizedInterest];
       }
     });
   }, []);
 
   const saveInterests = useCallback(async () => {
     try {
-      setIsEditingInterests(false); // Close modal first to clean up UI
-      await profileAPI.updateProfile({ interests: editedInterests });
-      await loadUser();
-      Alert.alert('Success', 'Interests updated');
+      const sanitized = Array.from(
+        new Set(
+          editedInterests
+            .map((interest) => interest.trim())
+            .filter((interest) => interest.length > 0)
+        )
+      );
+
+      await updateProfile({ interests: sanitized });
+      setIsEditingInterests(false);
+      Alert.alert('Success', sanitized.length > 0 ? 'Interests updated' : 'Interests cleared');
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.error || 'Failed to update interests');
+      const message =
+        error?.response?.data?.error ||
+        error?.message ||
+        'Failed to update interests';
+      Alert.alert('Error', message);
     }
-  }, [editedInterests]);
+  }, [editedInterests, updateProfile]);
 
   if (isLoading) {
     return (

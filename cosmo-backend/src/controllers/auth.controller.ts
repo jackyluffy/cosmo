@@ -280,7 +280,10 @@ export class AuthController {
    */
   static async appleAuth(req: Request, res: Response) {
     try {
-      const { identityToken, user: appleUser } = req.body;
+      const { identityToken, user: rawAppleUser } = req.body;
+      const appleUser = typeof rawAppleUser === 'string'
+        ? { id: rawAppleUser }
+        : rawAppleUser;
 
       if (!identityToken) {
         return res.status(400).json({
