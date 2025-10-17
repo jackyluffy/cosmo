@@ -26,13 +26,13 @@ const createEventSchema = joi_1.default.object({
     photos: joi_1.default.array().items(joi_1.default.string().uri()).max(5),
 });
 const joinEventSchema = joi_1.default.object({
-    preferences: joi_1.default.object({
-        genderPreference: joi_1.default.array().items(joi_1.default.string().valid('male', 'female', 'other')),
-        ageRange: joi_1.default.object({
-            min: joi_1.default.number().min(18),
-            max: joi_1.default.number().max(100),
-        }),
-    }),
+    venueOptionId: joi_1.default.string().optional(),
+});
+const voteSchema = joi_1.default.object({
+    venueOptionId: joi_1.default.string().required(),
+});
+const confirmSchema = joi_1.default.object({
+    action: joi_1.default.string().valid('confirm', 'cancel').required(),
 });
 const getEventsSchema = joi_1.default.object({
     category: joi_1.default.string().valid('food', 'music', 'sports', 'art', 'games', 'other'),
@@ -52,8 +52,11 @@ router.get('/:id', event_controller_1.EventController.getEvent);
 router.post('/', auth_middleware_1.requireCompleteProfile, (0, validation_middleware_1.validateRequest)(createEventSchema), event_controller_1.EventController.createEvent);
 router.put('/:id', event_controller_1.EventController.updateEvent);
 router.delete('/:id', event_controller_1.EventController.cancelEvent);
-router.post('/:id/join', auth_middleware_1.requireCompleteProfile, auth_middleware_1.requireActiveSubscription, (0, validation_middleware_1.validateRequest)(joinEventSchema), event_controller_1.EventController.joinEvent);
+router.post('/:id/join', auth_middleware_1.requireCompleteProfile, (0, validation_middleware_1.validateRequest)(joinEventSchema), event_controller_1.EventController.joinEvent);
 router.delete('/:id/leave', event_controller_1.EventController.leaveEvent);
+router.post('/:id/votes', auth_middleware_1.requireCompleteProfile, (0, validation_middleware_1.validateRequest)(voteSchema), event_controller_1.EventController.voteOnEvent);
+router.post('/:id/confirm', auth_middleware_1.requireCompleteProfile, (0, validation_middleware_1.validateRequest)(confirmSchema), event_controller_1.EventController.confirmAttendance);
+router.get('/assignments/me', auth_middleware_1.requireCompleteProfile, event_controller_1.EventController.getAssignments);
 // TODO: Implement these methods in EventController
 // router.get(
 //   '/:id/group',

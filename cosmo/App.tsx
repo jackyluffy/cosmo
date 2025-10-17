@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from './src/store/authStore';
 import { Colors } from './src/constants/theme';
 import SplashScreenNative from './src/components/SplashScreenNative';
+import { useEventsStore } from './src/store/eventsStore';
 
 import LoginScreen from './src/screens/auth/LoginScreen';
 import TermsOfServiceScreen from './src/screens/auth/TermsOfServiceScreen';
@@ -18,6 +19,7 @@ import LocationScreen from './src/screens/onboarding/LocationScreen';
 import CameraVerificationScreen from './src/screens/onboarding/CameraVerificationScreen';
 import SwipeScreen from './src/screens/swipe/SwipeScreen';
 import EventsScreen from './src/screens/events/EventsScreen';
+import EventChatScreen from './src/screens/events/EventChatScreen';
 import ProfileScreen from './src/screens/profile/ProfileScreen';
 
 const Stack = createStackNavigator();
@@ -25,6 +27,19 @@ const Tab = createBottomTabNavigator();
 const OnboardingStack = createStackNavigator();
 
 function MainTabs() {
+  const pendingCount = useEventsStore((state) => state.pendingCount);
+  const fetchAssignments = useEventsStore((state) => state.fetchAssignments);
+  const hasFetchedRef = React.useRef(false);
+
+  useEffect(() => {
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      fetchAssignments({ silent: true }).catch((error) => {
+        console.error('[MainTabs] Failed to prefetch assignments:', error);
+      });
+    }
+  }, [fetchAssignments]);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -49,7 +64,21 @@ function MainTabs() {
       })}
     >
       <Tab.Screen name="Swipe" component={SwipeScreen} />
-      <Tab.Screen name="Events" component={EventsScreen} />
+      <Tab.Screen
+        name="Events"
+        component={EventsScreen}
+        options={{
+          tabBarBadge: pendingCount > 0 ? pendingCount : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: Colors.error,
+            color: Colors.white,
+            fontSize: 11,
+            minWidth: 18,
+            height: 18,
+            borderRadius: 9,
+          },
+        }}
+      />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
@@ -152,7 +181,19 @@ export default function App() {
           <Stack.Screen name="Onboarding" component={OnboardingFlow} />
         ) : (
           // Authenticated and profile complete - show main app
-          <Stack.Screen name="Main" component={MainTabs} />
+          <>
+            <Stack.Screen name="Main" component={MainTabs} />
+            <Stack.Screen
+              name="Subscription"
+              component={SubscriptionScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="EventChat"
+              component={EventChatScreen}
+              options={{ headerShown: true, title: 'Event Chat' }}
+            />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>

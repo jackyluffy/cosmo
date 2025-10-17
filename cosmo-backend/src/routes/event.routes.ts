@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { EventController } from '../controllers/event.controller';
-import { requireCompleteProfile, requireActiveSubscription } from '../middleware/auth.middleware';
+import { requireCompleteProfile } from '../middleware/auth.middleware';
 import { validateRequest } from '../middleware/validation.middleware';
 import Joi from 'joi';
 
@@ -23,13 +23,15 @@ const createEventSchema = Joi.object({
 });
 
 const joinEventSchema = Joi.object({
-  preferences: Joi.object({
-    genderPreference: Joi.array().items(Joi.string().valid('male', 'female', 'other')),
-    ageRange: Joi.object({
-      min: Joi.number().min(18),
-      max: Joi.number().max(100),
-    }),
-  }),
+  venueOptionId: Joi.string().optional(),
+});
+
+const voteSchema = Joi.object({
+  venueOptionId: Joi.string().required(),
+});
+
+const confirmSchema = Joi.object({
+  action: Joi.string().valid('confirm', 'cancel').required(),
 });
 
 const getEventsSchema = Joi.object({
@@ -85,7 +87,6 @@ router.delete(
 router.post(
   '/:id/join',
   requireCompleteProfile,
-  requireActiveSubscription,
   validateRequest(joinEventSchema),
   EventController.joinEvent
 );
@@ -93,6 +94,26 @@ router.post(
 router.delete(
   '/:id/leave',
   EventController.leaveEvent
+);
+
+router.post(
+  '/:id/votes',
+  requireCompleteProfile,
+  validateRequest(voteSchema),
+  EventController.voteOnEvent
+);
+
+router.post(
+  '/:id/confirm',
+  requireCompleteProfile,
+  validateRequest(confirmSchema),
+  EventController.confirmAttendance
+);
+
+router.get(
+  '/assignments/me',
+  requireCompleteProfile,
+  EventController.getAssignments
 );
 
 // TODO: Implement these methods in EventController

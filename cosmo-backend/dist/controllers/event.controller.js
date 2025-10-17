@@ -3,8 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventController = void 0;
 const firebase_1 = require("../config/firebase");
 const firestore_1 = require("firebase-admin/firestore");
-const constants_1 = require("../config/constants");
 const events_config_1 = require("../config/events.config");
+const event_participation_service_1 = require("../services/event-participation.service");
 class EventController {
     /**
      * Get all available events
@@ -171,6 +171,10 @@ class EventController {
                     photos: template.venue.photos,
                     createdAt: firestore_1.Timestamp.now(),
                     updatedAt: firestore_1.Timestamp.now(),
+                    reminderSent: false,
+                    reminderSentAt: null,
+                    chatRoomId: null,
+                    confirmationsReceived: 0,
                 };
             }
             else {
@@ -214,6 +218,10 @@ class EventController {
                     photos: [],
                     createdAt: firestore_1.Timestamp.now(),
                     updatedAt: firestore_1.Timestamp.now(),
+                    reminderSent: false,
+                    reminderSentAt: null,
+                    chatRoomId: null,
+                    confirmationsReceived: 0,
                 };
             }
             const eventDoc = await firebase_1.db.collection(firebase_1.Collections.EVENTS).add(eventData);
@@ -237,77 +245,57 @@ class EventController {
      */
     static async joinEvent(req, res) {
         try {
-            const userId = req.userId;
+            const user = req.user;
+            const userId = user.id;
             const { id: eventId } = req.params;
-            const { preferences } = req.body;
-            // Check if event exists
-            const eventDoc = await firebase_1.db.collection(firebase_1.Collections.EVENTS).doc(eventId).get();
-            if (!eventDoc.exists) {
-                return res.status(404).json({
-                    success: false,
-                    error: 'Event not found',
-                });
-            }
-            const event = eventDoc.data();
-            // Check if event is still open
-            if (event.status !== 'published') {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Event is not available for joining',
-                });
-            }
-            // Check if user already joined
-            const existingMatch = await firebase_1.db.collection(firebase_1.Collections.MATCHES)
-                .where('userId', '==', userId)
-                .where('eventId', '==', eventId)
-                .where('status', 'in', ['pending', 'matched'])
-                .limit(1)
-                .get();
-            if (!existingMatch.empty) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'You have already joined this event',
-                });
-            }
-            // Check subscription limits
-            const subscription = req.user.subscription;
-            if (subscription.status === 'trial' && subscription.trialEventUsed) {
+            const { venueOptionId } = req.body;
+            const subscription = user.subscription;
+            const canJoin = subscription?.status === 'active' ||
+                (subscription?.status === 'trial' &&
+                    !(subscription?.trialEventUsed ||
+                        subscription?.trial_event_used));
+            if (!canJoin) {
                 return res.status(403).json({
                     success: false,
-                    error: 'Trial event already used. Please upgrade to continue.',
+                    error: 'An active subscription is required to join events.',
                 });
             }
-            // Create match entry
-            const matchData = {
-                userId,
-                eventId,
-                status: 'pending',
-                preferences: preferences || {
-                    ageRange: { min: 18, max: 100 },
-                    genderPreference: ['male', 'female', 'other'],
-                    interests: req.user.profile?.interests || [],
-                },
-                createdAt: firestore_1.Timestamp.now(),
-                expiresAt: firestore_1.Timestamp.fromDate(new Date(event.date.toDate().getTime() - 24 * 60 * 60 * 1000)), // 1 day before event
-            };
-            const matchDoc = await firebase_1.db.collection(firebase_1.Collections.MATCHES).add(matchData);
-            // Update trial status if needed
+            const { event, participant } = await event_participation_service_1.EventParticipationService.joinEvent(eventId, user);
+            let voteParticipant = null;
+            let updatedEvent = event;
+            if (venueOptionId) {
+                const voteResult = await event_participation_service_1.EventParticipationService.submitVote(eventId, userId, venueOptionId);
+                updatedEvent = voteResult.event;
+                voteParticipant = voteResult.participant;
+            }
             if (subscription.status === 'trial' && !subscription.trialEventUsed) {
                 await firebase_1.db.collection(firebase_1.Collections.USERS).doc(userId).update({
                     'subscription.trialEventUsed': true,
                 });
             }
-            return res.status(201).json({
+            return res.status(200).json({
                 success: true,
-                data: { matchId: matchDoc.id, ...matchData },
-                message: 'Successfully joined event. We\'ll notify you when a group is formed!',
+                data: {
+                    event: updatedEvent,
+                    participant: voteParticipant || participant,
+                },
+                message: venueOptionId
+                    ? 'Joined event and recorded vote.'
+                    : 'Joined event successfully.',
             });
         }
         catch (error) {
             console.error('Join event error:', error);
+            const errorMessage = error?.message || 'Failed to join event';
+            if (errorMessage.includes('temporarily unable')) {
+                return res.status(403).json({
+                    success: false,
+                    error: errorMessage,
+                });
+            }
             return res.status(500).json({
                 success: false,
-                error: 'Failed to join event',
+                error: errorMessage,
             });
         }
     }
@@ -317,51 +305,9 @@ class EventController {
      */
     static async leaveEvent(req, res) {
         try {
-            const userId = req.userId;
+            const user = req.user;
             const { id: eventId } = req.params;
-            // Find user's match
-            const matchSnapshot = await firebase_1.db.collection(firebase_1.Collections.MATCHES)
-                .where('userId', '==', userId)
-                .where('eventId', '==', eventId)
-                .where('status', 'in', ['pending', 'matched'])
-                .limit(1)
-                .get();
-            if (matchSnapshot.empty) {
-                return res.status(404).json({
-                    success: false,
-                    error: 'You have not joined this event',
-                });
-            }
-            const matchDoc = matchSnapshot.docs[0];
-            const matchData = matchDoc.data();
-            // Check if user is already in a group
-            if (matchData.groupId) {
-                // Remove from group
-                const groupDoc = await firebase_1.db.collection(firebase_1.Collections.GROUPS)
-                    .doc(matchData.groupId)
-                    .get();
-                if (groupDoc.exists) {
-                    const groupData = groupDoc.data();
-                    const updatedMembers = groupData?.members.filter((member) => member.userId !== userId);
-                    await groupDoc.ref.update({
-                        members: updatedMembers,
-                        updatedAt: firestore_1.Timestamp.now(),
-                    });
-                    // If group is too small, disband it
-                    if (updatedMembers.length < constants_1.Constants.MIN_GROUP_SIZE) {
-                        await groupDoc.ref.update({
-                            status: 'disbanded',
-                        });
-                        // Notify other members
-                        // TODO: Send notifications
-                    }
-                }
-            }
-            // Update match status
-            await matchDoc.ref.update({
-                status: 'rejected',
-                updatedAt: firestore_1.Timestamp.now(),
-            });
+            await event_participation_service_1.EventParticipationService.cancelParticipation(eventId, user);
             return res.status(200).json({
                 success: true,
                 message: 'Successfully left the event',
@@ -371,7 +317,118 @@ class EventController {
             console.error('Leave event error:', error);
             return res.status(500).json({
                 success: false,
-                error: 'Failed to leave event',
+                error: error?.message || 'Failed to leave event',
+            });
+        }
+    }
+    /**
+     * Submit a venue vote for an event
+     * POST /events/:id/votes
+     */
+    static async voteOnEvent(req, res) {
+        try {
+            const userId = req.userId;
+            const { id: eventId } = req.params;
+            const { venueOptionId } = req.body;
+            const { event, participant } = await event_participation_service_1.EventParticipationService.submitVote(eventId, userId, venueOptionId);
+            return res.status(200).json({
+                success: true,
+                data: {
+                    event,
+                    participant,
+                },
+                message: 'Vote recorded successfully.',
+            });
+        }
+        catch (error) {
+            console.error('Vote on event error:', error);
+            return res.status(500).json({
+                success: false,
+                error: error?.message || 'Failed to record vote',
+            });
+        }
+    }
+    /**
+     * Confirm or cancel attendance after reminder
+     * POST /events/:id/confirm
+     */
+    static async confirmAttendance(req, res) {
+        try {
+            const user = req.user;
+            const { id: eventId } = req.params;
+            const { action } = req.body;
+            const normalizedAction = action === 'cancel' ? 'cancel' : 'confirm';
+            const { event, participant } = await event_participation_service_1.EventParticipationService.respondToReminder(eventId, user, normalizedAction);
+            return res.status(200).json({
+                success: true,
+                data: {
+                    event,
+                    participant,
+                },
+                message: normalizedAction === 'confirm'
+                    ? 'Attendance confirmed. See you there!'
+                    : 'We saved your cancellation. We will find a replacement.',
+            });
+        }
+        catch (error) {
+            console.error('Confirm attendance error:', error);
+            return res.status(500).json({
+                success: false,
+                error: error?.message || 'Failed to update attendance',
+            });
+        }
+    }
+    /**
+     * Get pending event assignments for the current user
+     * GET /events/assignments/me
+     */
+    static async getAssignments(req, res) {
+        try {
+            const user = req.user;
+            const assignments = (user.pendingEvents || []);
+            const enrichedAssignments = await Promise.all(assignments.map(async (assignment) => {
+                const eventSnap = await firebase_1.db.collection(firebase_1.Collections.EVENTS).doc(assignment.eventId).get();
+                if (!eventSnap.exists) {
+                    return null;
+                }
+                const event = { id: eventSnap.id, ...eventSnap.data() };
+                const participantDocId = `${assignment.eventId}_${user.id}`;
+                const participantSnap = await firebase_1.db
+                    .collection(firebase_1.Collections.EVENT_PARTICIPANTS)
+                    .doc(participantDocId)
+                    .get();
+                const participant = participantSnap.exists
+                    ? { id: participantSnap.id, ...participantSnap.data() }
+                    : null;
+                return {
+                    assignment,
+                    event,
+                    participant,
+                };
+            }));
+            const results = enrichedAssignments.filter((item) => item !== null);
+            const subscription = user.subscription;
+            const trialUsed = subscription?.trialEventUsed ||
+                subscription?.trial_event_used ||
+                false;
+            const canJoinSubscription = subscription?.status === 'active' ||
+                (subscription?.status === 'trial' && !trialUsed);
+            const banUntil = user.eventBanUntil?.toDate?.();
+            const canJoin = canJoinSubscription && (!banUntil || banUntil <= new Date());
+            return res.status(200).json({
+                success: true,
+                data: {
+                    assignments: results,
+                    pendingEventCount: user.pendingEventCount ?? results.length,
+                    canJoin,
+                },
+            });
+        }
+        catch (error) {
+            console.error('Get assignments error:', error);
+            return res.status(500).json({
+                success: false,
+                error: error?.message || 'Failed to fetch assignments',
             });
         }
     }

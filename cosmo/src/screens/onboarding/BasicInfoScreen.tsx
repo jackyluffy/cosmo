@@ -33,6 +33,7 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
   const [genderPreference, setGenderPreference] = useState<GenderPreference | null>(null);
   const [socialPlatform, setSocialPlatform] = useState<SocialPlatform>(null);
   const [socialHandle, setSocialHandle] = useState('');
+  const [job, setJob] = useState('');
   const [oneThingAboutMe, setOneThingAboutMe] = useState('');
   const [lookingFor, setLookingFor] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -119,6 +120,11 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
         genderPreference,
         bio: oneThingAboutMe.trim(),
       };
+
+      // Add optional job field if provided
+      if (job.trim()) {
+        profileData.occupation = job.trim();
+      }
 
       // Add optional lookingFor field if provided
       if (lookingFor.trim()) {
@@ -365,6 +371,20 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
               </Text>
             </TouchableOpacity>
           </View>
+        </View>
+
+        {/* Job Input */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Job / Occupation (Optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={job}
+            onChangeText={setJob}
+            placeholder="e.g., Software Engineer, Teacher, etc."
+            placeholderTextColor={Colors.gray}
+            autoCapitalize="words"
+            maxLength={50}
+          />
         </View>
 
         {/* Social Media */}

@@ -14,15 +14,12 @@ import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme
 import { iapService } from '../../services/iapService';
 import { useFocusEffect } from '@react-navigation/native';
 
-interface Props {
-  navigation: any;
-}
-
-export default function SubscriptionScreen({ navigation }: Props) {
+export default function SubscriptionScreen({ navigation, route }: any) {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [products, setProducts] = useState<InAppPurchases.IAPItemDetails[]>([]);
   const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
+  const origin = route?.params?.origin;
 
   const loadSubscriptionStatus = useCallback(async () => {
     if (Platform.OS === 'web') {
@@ -100,6 +97,10 @@ export default function SubscriptionScreen({ navigation }: Props) {
   };
 
   const handleContinue = () => {
+    if (origin === 'events') {
+      navigation.goBack();
+      return;
+    }
     navigation.reset({
       index: 0,
       routes: [{ name: 'MainTabs' }],

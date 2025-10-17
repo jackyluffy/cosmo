@@ -59,10 +59,46 @@
       ]
     },
     {
-      "collectionGroup": "otp_codes",
+      "collectionGroup": "pair_matches",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "createdAt", "order": "ASCENDING" }
+        { "fieldPath": "queueStatus", "order": "ASCENDING" },
+        { "fieldPath": "queueEventType", "order": "ASCENDING" },
+        { "fieldPath": "availabilityOverlapCount", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pair_matches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "queueStatus", "order": "ASCENDING" },
+        { "fieldPath": "pendingEventId", "order": "ASCENDING" },
+        { "fieldPath": "availabilityComputedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "group_chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "participantIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "group_chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "eventId", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "chatId", "order": "ASCENDING" },
+        { "fieldPath": "deletedAt", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     }
   ],

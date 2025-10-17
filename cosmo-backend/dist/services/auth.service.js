@@ -247,6 +247,11 @@ class AuthService {
                 process.env.GOOGLE_CLIENT_ID, // Web client ID
                 process.env.GOOGLE_IOS_CLIENT_ID, // iOS client ID
             ].filter(Boolean);
+            console.log('[GOOGLE AUTH] Expected audiences:', audiences);
+            // First decode without verification to see the actual audience
+            const decodedToken = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+            console.log('[GOOGLE AUTH] Token audience (aud):', decodedToken.aud);
+            console.log('[GOOGLE AUTH] Token issuer (iss):', decodedToken.iss);
             const ticket = await client.verifyIdToken({
                 idToken,
                 audience: audiences,

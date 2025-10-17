@@ -197,41 +197,85 @@ class VerificationController {
      * Returns a similarity score between 0 and 1
      */
     compareFaces(face1, face2) {
-        // Key facial landmarks to compare
+        // Key facial landmarks to compare - using eyes as anchor points
         const landmarkTypes = [
             'LEFT_EYE',
             'RIGHT_EYE',
             'NOSE_TIP',
             'MOUTH_CENTER',
-            'LEFT_EAR_TRAGION',
-            'RIGHT_EAR_TRAGION',
         ];
         // Get landmark positions for both faces
         const landmarks1 = this.extractLandmarks(face1, landmarkTypes);
         const landmarks2 = this.extractLandmarks(face2, landmarkTypes);
-        if (landmarks1.length === 0 || landmarks2.length === 0) {
-            // Fallback to bounding box comparison
+        console.log(`[Verification] Extracted landmarks - face1: ${landmarks1.length}, face2: ${landmarks2.length}`);
+        // Need at least eyes and one other landmark
+        if (landmarks1.length < 3 || landmarks2.length < 3) {
+            console.log(`[Verification] Not enough landmarks detected, using fallback`);
             return this.compareBoundingBoxes(face1.boundingPoly, face2.boundingPoly);
         }
+        // Normalize landmarks relative to inter-eye distance (scale invariant)
+        const normalized1 = this.normalizeLandmarksByEyes(landmarks1);
+        const normalized2 = this.normalizeLandmarksByEyes(landmarks2);
+        if (!normalized1 || !normalized2) {
+            console.log(`[Verification] Failed to normalize landmarks, using fallback`);
+            return this.compareBoundingBoxes(face1.boundingPoly, face2.boundingPoly);
+        }
+        console.log(`[Verification] Comparing ${normalized1.length} normalized landmarks`);
         // Calculate normalized distances between corresponding landmarks
         const distances = [];
-        for (let i = 0; i < landmarks1.length; i++) {
-            if (landmarks1[i] && landmarks2[i]) {
-                const distance = this.euclideanDistance(landmarks1[i], landmarks2[i]);
+        for (let i = 0; i < Math.min(normalized1.length, normalized2.length); i++) {
+            if (normalized1[i] && normalized2[i]) {
+                const distance = this.euclideanDistance(normalized1[i], normalized2[i]);
                 distances.push(distance);
+                console.log(`[Verification]   Landmark ${i}: distance = ${distance.toFixed(4)}`);
             }
         }
         if (distances.length === 0) {
+            console.log(`[Verification] No valid landmark distances, using fallback`);
             return this.compareBoundingBoxes(face1.boundingPoly, face2.boundingPoly);
         }
         // Calculate average distance
         const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
+        console.log(`[Verification] Average normalized distance: ${avgDistance.toFixed(4)}`);
         // Convert distance to similarity score (0-1)
-        // Lower distance = higher similarity
-        // We use a tolerance threshold to account for different angles and lighting
-        const maxTolerance = 200; // Maximum acceptable distance for 0% similarity
-        const similarity = Math.max(0, 1 - avgDistance / maxTolerance);
+        // After normalizing by eye distance, distances should be much smaller
+        // Distance < 0.15 = very similar, > 0.4 = different person
+        const maxTolerance = 0.5; // More lenient threshold
+        const similarity = Math.max(0, Math.min(1, 1 - avgDistance / maxTolerance));
+        console.log(`[Verification] Calculated similarity: ${(similarity * 100).toFixed(2)}%`);
         return similarity;
+    }
+    /**
+     * Normalize landmarks relative to inter-eye distance (scale, position, and rotation invariant)
+     * This preserves facial proportions regardless of image size, face position, or head rotation
+     */
+    normalizeLandmarksByEyes(landmarks) {
+        if (landmarks.length < 2)
+            return null;
+        // First two landmarks should be LEFT_EYE and RIGHT_EYE
+        const leftEye = landmarks[0];
+        const rightEye = landmarks[1];
+        // Calculate inter-eye distance (our normalization scale)
+        const eyeDistance = this.euclideanDistance(leftEye, rightEye);
+        if (eyeDistance === 0)
+            return null;
+        // Calculate angle of eye line (for rotation normalization)
+        const angle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x);
+        console.log(`[Verification]   Eye distance: ${eyeDistance.toFixed(2)}, Angle: ${(angle * 180 / Math.PI).toFixed(2)}°`);
+        // Normalize each landmark: translate, rotate, and scale
+        return landmarks.map(landmark => {
+            // Translate to make left eye the origin
+            const translatedX = landmark.x - leftEye.x;
+            const translatedY = landmark.y - leftEye.y;
+            // Rotate to align eyes horizontally (rotation invariant)
+            const rotatedX = translatedX * Math.cos(-angle) - translatedY * Math.sin(-angle);
+            const rotatedY = translatedX * Math.sin(-angle) + translatedY * Math.cos(-angle);
+            // Scale by eye distance (scale invariant)
+            return {
+                x: rotatedX / eyeDistance,
+                y: rotatedY / eyeDistance,
+            };
+        });
     }
     /**
      * Extract landmark positions from face annotation

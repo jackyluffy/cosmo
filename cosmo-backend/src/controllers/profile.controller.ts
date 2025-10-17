@@ -77,6 +77,7 @@ export class ProfileController {
       if (updates.traits) profileUpdates['profile.traits'] = updates.traits;
       if (updates.radius) profileUpdates['profile.radius'] = updates.radius;
       if (updates.photos) profileUpdates['profile.photos'] = updates.photos;
+      if (updates.availability) profileUpdates['profile.availability'] = updates.availability;
       if (updates.location) {
         console.log('[Profile Update] Creating GeoPoint from:', updates.location);
         profileUpdates['profile.location'] = new GeoPoint(updates.location.lat, updates.location.lng);

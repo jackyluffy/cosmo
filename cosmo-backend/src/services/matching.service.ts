@@ -2,6 +2,7 @@ import { db, Collections } from '../config/firebase';
 import { User, Match, Group, GroupMember, PersonalityTraits } from '../types';
 import { Constants } from '../config/constants';
 import { Timestamp, GeoPoint } from 'firebase-admin/firestore';
+import { NotificationService } from './notification.service';
 
 interface MatchCandidate {
   userId: string;
@@ -441,7 +442,17 @@ export class MatchingService {
     );
 
     // Send notifications to members
-    // TODO: Implement notification service
+    const memberNotifications = members.map((member) =>
+      NotificationService.sendGroupFormed(member.userId, {
+        title: 'You have a new match group!',
+        body: 'A new group has been formed. Head to Events to see who you matched with.',
+        data: {
+          eventId,
+          groupId: groupDoc.id,
+        },
+      })
+    );
+    await Promise.all(memberNotifications);
   }
 
   /**

@@ -4,6 +4,7 @@ exports.MatchingService = void 0;
 const firebase_1 = require("../config/firebase");
 const constants_1 = require("../config/constants");
 const firestore_1 = require("firebase-admin/firestore");
+const notification_service_1 = require("./notification.service");
 class MatchingService {
     /**
      * Run matching algorithm for an event
@@ -342,7 +343,15 @@ class MatchingService {
             updatedAt: firestore_1.Timestamp.now(),
         })));
         // Send notifications to members
-        // TODO: Implement notification service
+        const memberNotifications = members.map((member) => notification_service_1.NotificationService.sendGroupFormed(member.userId, {
+            title: 'You have a new match group!',
+            body: 'A new group has been formed. Head to Events to see who you matched with.',
+            data: {
+                eventId,
+                groupId: groupDoc.id,
+            },
+        }));
+        await Promise.all(memberNotifications);
     }
     /**
      * Calculate distance between two points

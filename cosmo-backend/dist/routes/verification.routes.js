@@ -8,8 +8,8 @@ const verificationController = new verification_controller_1.VerificationControl
 // All routes require authentication
 router.use(auth_middleware_1.authenticate);
 // Verify selfie against profile photos
-router.post('/verify-selfie', verificationController.verifySelfie);
+router.post('/verify-selfie', verificationController.verifySelfie.bind(verificationController));
 // Get verification status
-router.get('/status', verificationController.getVerificationStatus);
+router.get('/status', verificationController.getVerificationStatus.bind(verificationController));
 exports.default = router;
 //# sourceMappingURL=verification.routes.js.map

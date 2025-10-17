@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.cronRoutes = void 0;
 const express_1 = require("express");
 const matching_service_1 = require("../services/matching.service");
+const event_reminder_service_1 = require("../services/event-reminder.service");
+const event_orchestration_service_1 = require("../services/event-orchestration.service");
 const logger_1 = require("../utils/logger");
 const firebase_1 = require("../config/firebase");
 const firestore_1 = require("firebase-admin/firestore");
@@ -205,6 +207,50 @@ router.post('/weekly-analytics', async (req, res) => {
     }
     catch (error) {
         logger_1.logger.error('Analytics generation error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
+/**
+ * Auto-organize pending events by consuming queued pair matches.
+ * Intended to be triggered by Cloud Scheduler (e.g., every 15 minutes).
+ */
+router.post('/auto-organize-events', async (req, res) => {
+    logger_1.logger.info('Starting auto event orchestration');
+    try {
+        const createdByType = await event_orchestration_service_1.EventOrchestrationService.processAllQueues();
+        logger_1.logger.info('Auto event orchestration completed', createdByType);
+        res.json({
+            success: true,
+            createdEvents: createdByType,
+            timestamp: new Date().toISOString(),
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Auto event orchestration error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+        });
+    }
+});
+/**
+ * Send 48-hour event reminders to joined participants.
+ */
+router.post('/event-reminders', async (req, res) => {
+    logger_1.logger.info('Running event reminder scheduler');
+    try {
+        const result = await event_reminder_service_1.EventReminderService.sendUpcomingEventReminders();
+        res.json({
+            success: true,
+            processed: result.processed,
+            timestamp: new Date().toISOString(),
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Event reminder error:', error);
         res.status(500).json({
             success: false,
             error: error.message,

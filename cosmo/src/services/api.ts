@@ -114,6 +114,28 @@ const realAPI = {
   events: {
     getAll: () => api.get('/api/v1/events'),
     create: (eventData: any) => api.post('/api/v1/events', eventData),
+    getAssignments: () => api.get('/api/v1/events/assignments/me'),
+    join: (eventId: string, payload: { venueOptionId?: string }) =>
+      api.post(`/api/v1/events/${eventId}/join`, payload),
+    vote: (eventId: string, payload: { venueOptionId: string }) =>
+      api.post(`/api/v1/events/${eventId}/votes`, payload),
+    leave: (eventId: string) => api.delete(`/api/v1/events/${eventId}/leave`),
+    confirm: (eventId: string, action: 'confirm' | 'cancel') =>
+      api.post(`/api/v1/events/${eventId}/confirm`, { action }),
+  },
+
+  chat: {
+    getConversations: () => api.get('/api/v1/chat/conversations'),
+    getMessages: (chatId: string, params?: { limit?: number; before?: number }) =>
+      api.get(`/api/v1/chat/conversations/${chatId}/messages`, { params }),
+    sendMessage: (
+      chatId: string,
+      payload: { message: string; attachments?: Array<{ type: string; url: string }> }
+    ) => api.post(`/api/v1/chat/conversations/${chatId}/messages`, payload),
+    markAsRead: (chatId: string, messageIds: string[]) =>
+      api.put(`/api/v1/chat/conversations/${chatId}/read`, { messageIds }),
+    deleteMessage: (chatId: string, messageId: string) =>
+      api.delete(`/api/v1/chat/conversations/${chatId}/messages/${messageId}`),
   },
 
   // Chat system endpoints

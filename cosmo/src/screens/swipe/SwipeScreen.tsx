@@ -12,6 +12,7 @@ import {
   Animated,
   PanResponder,
   Modal,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
@@ -22,7 +23,7 @@ import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 120;
-const PHOTO_HEIGHT = screenHeight * 0.65;
+const PHOTO_HEIGHT = screenHeight * 0.8;
 
 // Map interests to emojis
 const getInterestEmoji = (interest: string): string => {
@@ -136,12 +137,13 @@ export default function SwipeScreen() {
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [filters, setFilters] = useState<FilterOptions>({ ...DEFAULT_FILTERS });
   const [draftFilters, setDraftFilters] = useState<FilterOptions>({ ...DEFAULT_FILTERS });
-  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [photoIndices, setPhotoIndices] = useState<Record<string, number>>({});
   const [isPhotoInteracting, setIsPhotoInteracting] = useState(false);
 
   const insets = useSafeAreaInsets();
   const position = useRef(new Animated.ValueXY()).current;
   const isPhotoInteractingRef = useRef(false);
+  const flatListRefs = useRef<Record<string, FlatList<string> | null>>({});
 
   useEffect(() => {
     isPhotoInteractingRef.current = isPhotoInteracting;
@@ -167,10 +169,37 @@ export default function SwipeScreen() {
   }, [filterModalVisible, filters]);
 
   useEffect(() => {
-    // Reset photo index when card changes
-    setCurrentPhotoIndex(0);
+    const currentProfile = profiles[currentIndex];
+    if (currentProfile) {
+      setPhotoIndices((prev) =>
+        prev[currentProfile.id] === undefined ? { ...prev, [currentProfile.id]: 0 } : prev
+      );
+    }
     setIsPhotoInteracting(false);
-  }, [currentIndex]);
+  }, [currentIndex, profiles]);
+
+  useEffect(() => {
+    const currentProfile = profiles[currentIndex];
+    if (!currentProfile) {
+      return;
+    }
+
+    const listRef = flatListRefs.current[currentProfile.id];
+    if (!listRef) {
+      return;
+    }
+
+    const targetIndex = photoIndices[currentProfile.id] ?? 0;
+    const offset = targetIndex * PHOTO_HEIGHT;
+
+    requestAnimationFrame(() => {
+      try {
+        listRef.scrollToOffset({ offset, animated: false });
+      } catch (error) {
+        console.warn('[SwipeScreen] Failed to reset photo position:', error);
+      }
+    });
+  }, [currentIndex, profiles, photoIndices]);
 
   const loadProfiles = async () => {
     try {
@@ -182,6 +211,7 @@ export default function SwipeScreen() {
       if (!response || !response.data) {
         console.log('[SwipeScreen] Response is null/undefined or has no data');
         setProfiles([]);
+        setPhotoIndices({});
         return;
       }
 
@@ -231,10 +261,17 @@ export default function SwipeScreen() {
       const filteredProfiles = applyFilters(mappedProfiles);
 
       setProfiles(filteredProfiles);
+      setPhotoIndices(
+        filteredProfiles.reduce((acc, profile) => {
+          acc[profile.id] = 0;
+          return acc;
+        }, {} as Record<string, number>)
+      );
       setCurrentIndex(0);
     } catch (error) {
       console.error('[SwipeScreen] Failed to load profiles:', error);
       setProfiles([]);
+      setPhotoIndices({});
     } finally {
       setLoading(false);
     }
@@ -277,71 +314,117 @@ export default function SwipeScreen() {
     });
   };
 
-  const handleSwipe = async (direction: 'left' | 'right') => {
-    const profile = profiles[currentIndex];
-    if (!profile) return;
-
-    try {
-      await swipeAPI.swipe(profile.id, direction === 'right' ? 'like' : 'skip');
-    } catch (error) {
-      console.error('Failed to record swipe:', error);
+  const handleSwipe = (
+    direction: 'left' | 'right',
+    swipedIndex: number,
+    swipedProfile?: Profile
+  ) => {
+    const profile = swipedProfile ?? profiles[swipedIndex];
+    if (!profile) {
+      return;
     }
 
+    swipeAPI
+      .swipe(profile.id, direction === 'right' ? 'like' : 'skip')
+      .catch(error => {
+        console.error('Failed to record swipe:', error);
+      });
+
+    // Reset position first, then move to next card
+    position.setValue({ x: 0, y: 0 });
+
     // Immediately move to next card (no blank screen)
-    if (currentIndex === profiles.length - 1) {
+    if (swipedIndex >= profiles.length - 1) {
       loadProfiles();
     } else {
-      setCurrentIndex(currentIndex + 1);
-      position.setValue({ x: 0, y: 0 });
+      setCurrentIndex(prevIndex => {
+        if (prevIndex > swipedIndex) {
+          return prevIndex;
+        }
+        return swipedIndex + 1;
+      });
     }
   };
 
   const swipeLeft = () => {
+    const swipedIndex = currentIndex;
+    const swipedProfile = profiles[swipedIndex];
     Animated.timing(position, {
       toValue: { x: -screenWidth - 100, y: 0 },
       duration: 250,
       useNativeDriver: false,
-    }).start(() => handleSwipe('left'));
+    }).start(() => handleSwipe('left', swipedIndex, swipedProfile));
   };
 
   const swipeRight = () => {
+    const swipedIndex = currentIndex;
+    const swipedProfile = profiles[swipedIndex];
     Animated.timing(position, {
       toValue: { x: screenWidth + 100, y: 0 },
       duration: 250,
       useNativeDriver: false,
-    }).start(() => handleSwipe('right'));
+    }).start(() => handleSwipe('right', swipedIndex, swipedProfile));
   };
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => !isPhotoInteractingRef.current,
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        !isPhotoInteractingRef.current && Math.abs(gesture.dx) > Math.abs(gesture.dy),
-      onPanResponderMove: (_, gesture) => {
-        if (isPhotoInteractingRef.current) return;
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, gesture) => {
+      if (isPhotoInteractingRef.current) {
+        return false;
+      }
+      // Only capture horizontal swipes for card swiping
+      const dx = Math.abs(gesture.dx);
+      const dy = Math.abs(gesture.dy);
+      const hasSufficientMovement = dx > 10;
+      const isHorizontalSwipe = dx > dy * 1.5;
+      if (!hasSufficientMovement) {
+        return false;
+      }
+      if (isHorizontalSwipe) {
+        setIsPhotoInteracting(false);
+        return true;
+      }
+      return false;
+    },
+    onPanResponderMove: (_, gesture) => {
+      if (isPhotoInteractingRef.current) {
+        return;
+      }
+      const isHorizontalSwipe = Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5;
+      if (isHorizontalSwipe) {
         position.setValue({ x: gesture.dx, y: gesture.dy });
-      },
-      onPanResponderRelease: (_, gesture) => {
-        if (isPhotoInteractingRef.current) {
-          Animated.spring(position, {
-            toValue: { x: 0, y: 0 },
-            useNativeDriver: false,
-          }).start();
-          return;
-        }
-        if (gesture.dx > SWIPE_THRESHOLD) {
-          swipeRight();
-        } else if (gesture.dx < -SWIPE_THRESHOLD) {
-          swipeLeft();
-        } else {
-          Animated.spring(position, {
-            toValue: { x: 0, y: 0 },
-            useNativeDriver: false,
-          }).start();
-        }
-      },
-    })
-  ).current;
+      }
+    },
+    onPanResponderRelease: (_, gesture) => {
+      if (isPhotoInteractingRef.current) {
+        Animated.spring(position, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: false,
+        }).start();
+        return;
+      }
+
+      const isHorizontalSwipe = Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5;
+      if (!isHorizontalSwipe) {
+        Animated.spring(position, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: false,
+        }).start();
+        return;
+      }
+
+      if (gesture.dx > SWIPE_THRESHOLD) {
+        swipeRight();
+      } else if (gesture.dx < -SWIPE_THRESHOLD) {
+        swipeLeft();
+      } else {
+        Animated.spring(position, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: false,
+        }).start();
+      }
+    },
+  });
 
   const toggleGender = (gender: string) => {
     const current = draftFilters.gender || [];
@@ -395,6 +478,7 @@ export default function SwipeScreen() {
     });
 
     const isCurrentCard = index === currentIndex;
+    const currentPhotoIndex = photoIndices[profile.id] ?? 0;
 
     return (
       <Animated.View
@@ -412,10 +496,10 @@ export default function SwipeScreen() {
             zIndex: isCurrentCard ? 10 : 1,
           },
         ]}
-        {...(isCurrentCard && !isPhotoInteracting ? panResponder.panHandlers : {})}
+        {...(isCurrentCard ? panResponder.panHandlers : {})}
       >
         {/* Photo indicator (always show on current card) */}
-        {isCurrentCard && photos.length > 1 && (
+        {isCurrentCard && (
           <View style={styles.photoIndicator}>
             <Text style={styles.photoIndicatorText}>
               {currentPhotoIndex + 1}/{photos.length}
@@ -436,61 +520,61 @@ export default function SwipeScreen() {
         )}
 
         {/* Vertical ScrollView for all photos */}
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          style={styles.photoScrollView}
-          scrollEventThrottle={16}
+        <FlatList
+          ref={(ref) => {
+            if (ref) {
+              flatListRefs.current[profile.id] = ref;
+            } else {
+              delete flatListRefs.current[profile.id];
+            }
+          }}
+          data={photos}
+          keyExtractor={(_, idx) => `${profile.id}-photo-${idx}`}
+          initialScrollIndex={currentPhotoIndex}
           pagingEnabled
           snapToInterval={PHOTO_HEIGHT}
           snapToAlignment="start"
           decelerationRate="fast"
           bounces={false}
-          contentContainerStyle={styles.photoScrollContent}
+          showsVerticalScrollIndicator={true}
+          style={styles.photoList}
+          scrollEnabled={isCurrentCard}
           onScrollBeginDrag={() => setIsPhotoInteracting(true)}
           onScrollEndDrag={() => setIsPhotoInteracting(false)}
+          onMomentumScrollBegin={() => setIsPhotoInteracting(true)}
           onMomentumScrollEnd={(e) => {
             setIsPhotoInteracting(false);
             if (!isCurrentCard) return;
             const offsetY = e.nativeEvent.contentOffset.y;
             const index = Math.round(offsetY / PHOTO_HEIGHT);
-            setCurrentPhotoIndex(Math.min(Math.max(index, 0), Math.max(photos.length - 1, 0)));
+            setPhotoIndices((prev) => ({
+              ...prev,
+              [profile.id]: Math.min(Math.max(index, 0), photos.length - 1),
+            }));
           }}
-        >
-          {photos.map((photoUrl, idx) => (
-            <View key={idx} style={styles.photoContainer}>
-              <Image
-                source={{ uri: photoUrl }}
-                style={styles.photo}
-                resizeMode="cover"
-              />
-              {/* Profile Info Overlay on First Photo */}
-              {idx === 0 && isCurrentCard && (
+          getItemLayout={(_, idx) => ({
+            length: PHOTO_HEIGHT,
+            offset: PHOTO_HEIGHT * idx,
+            index: idx,
+          })}
+          renderItem={({ item: photoUrl, index: photoIndex }) => (
+            <View style={styles.photoContainer}>
+              <Image source={{ uri: photoUrl }} style={styles.photo} resizeMode="cover" />
+              {isCurrentCard && (
                 <View style={styles.profileOverlay}>
                   <View style={styles.overlayContent}>
                     <Text style={styles.overlayName}>
                       {profile.name}, {profile.age}
                     </Text>
 
-                    <View style={styles.overlayDetails}>
-                      {profile.gender && (
-                        <View style={styles.overlayDetailItem}>
-                          <Ionicons name="person-outline" size={14} color={Colors.white} />
-                          <Text style={styles.overlayDetailText}>
-                            {profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1)}
-                          </Text>
-                        </View>
-                      )}
-                      {profile.height && (
+                    {profile.height && (
+                      <View style={styles.overlayDetails}>
                         <View style={styles.overlayDetailItem}>
                           <Ionicons name="resize-outline" size={14} color={Colors.white} />
                           <Text style={styles.overlayDetailText}>{profile.height}</Text>
                         </View>
-                      )}
-                      <View style={styles.overlayDetailItem}>
-                        <Ionicons name="location-outline" size={14} color={Colors.white} />
-                        <Text style={styles.overlayDetailText}>{profile.distance} miles away</Text>
                       </View>
-                    </View>
+                    )}
 
                     {profile.occupation && (
                       <View style={styles.overlayDetailItem}>
@@ -506,11 +590,7 @@ export default function SwipeScreen() {
                       </View>
                     )}
 
-                    {profile.bio && (
-                      <Text style={styles.overlayBio}>
-                        {profile.bio}
-                      </Text>
-                    )}
+                    {profile.bio && <Text style={styles.overlayBio}>{profile.bio}</Text>}
 
                     {profile.interests && profile.interests.length > 0 && (
                       <View style={styles.overlayInterests}>
@@ -527,8 +607,8 @@ export default function SwipeScreen() {
                 </View>
               )}
             </View>
-          ))}
-        </ScrollView>
+          )}
+        />
       </Animated.View>
     );
   };
@@ -568,17 +648,6 @@ export default function SwipeScreen() {
       {/* Card Container - full screen */}
       <View style={styles.cardContainer}>
         {profiles.map((profile, index) => renderCard(profile, index))}
-      </View>
-
-      {/* Action Buttons */}
-      <View style={styles.buttonsContainer}>
-        <TouchableOpacity style={[styles.button, styles.skipButton]} onPress={swipeLeft}>
-          <Ionicons name="close" size={32} color={Colors.error} />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.button, styles.likeButton]} onPress={swipeRight}>
-          <Ionicons name="heart" size={32} color={Colors.success} />
-        </TouchableOpacity>
       </View>
 
       {/* Filter Modal */}
@@ -838,7 +907,7 @@ const styles = StyleSheet.create({
   card: {
     position: 'absolute',
     width: screenWidth,
-    height: screenHeight * 0.85,
+    height: PHOTO_HEIGHT,
     backgroundColor: Colors.white,
     shadowColor: Colors.black,
     shadowOffset: {
@@ -889,11 +958,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Colors.white,
   },
-  photoScrollView: {
+  photoList: {
     flex: 1,
-  },
-  photoScrollContent: {
-    flexGrow: 0,
+    height: PHOTO_HEIGHT,
   },
   photoContainer: {
     position: 'relative',

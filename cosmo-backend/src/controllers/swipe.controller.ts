@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { db, Collections } from '../config/firebase';
-import { ApiResponse, User } from '../types';
+import { ApiResponse, PairMatch, User } from '../types';
 import { Timestamp } from 'firebase-admin/firestore';
+import { PairMatchingService } from '../services/pair-matching.service';
 
 export class SwipeController {
   /**
@@ -154,6 +155,7 @@ export class SwipeController {
 
       // Check for match if it's a like
       let isMatch = false;
+      let pairMatch: PairMatch | null = null;
       if (direction === 'like') {
         // Check if target user has also liked current user
         const reverseSwipe = await db
@@ -167,13 +169,12 @@ export class SwipeController {
           // It's a match!
           isMatch = true;
 
-          // Create match record
-          await db.collection(Collections.MATCHES).add({
-            users: [userId, targetId],
-            createdAt: Timestamp.now(),
-            status: 'active',
-            lastMessageAt: null,
-          });
+          const currentUser = req.user as User;
+          const targetData = targetDoc.data() as User;
+          pairMatch = await PairMatchingService.upsertPairMatch(
+            { id: currentUser.id, profile: currentUser.profile },
+            { id: targetDoc.id, profile: targetData.profile }
+          );
         }
       }
 
@@ -183,6 +184,7 @@ export class SwipeController {
           match: isMatch,
           targetId,
           direction,
+          pairMatch,
         },
         message: isMatch ? "It's a match!" : 'Swipe recorded',
       } as ApiResponse);
@@ -204,24 +206,24 @@ export class SwipeController {
       const userId = req.userId!;
 
       // Get all matches where user is involved
-      const matchesSnapshot = await db
-        .collection(Collections.MATCHES)
-        .where('users', 'array-contains', userId)
-        .where('status', '==', 'active')
-        .orderBy('createdAt', 'desc')
-        .get();
+      const pairMatches = await PairMatchingService.getPairMatchesForUser(userId);
 
       const matches = await Promise.all(
-        matchesSnapshot.docs.map(async doc => {
-          const matchData = doc.data();
-          const otherUserId = matchData.users.find((id: string) => id !== userId);
+        pairMatches.map(async (pairMatch) => {
+          const otherUserId = pairMatch.userIds.find((id: string) => id !== userId);
 
-          // Get other user's profile
+          if (!otherUserId) {
+            return null;
+          }
+
           const otherUserDoc = await db.collection(Collections.USERS).doc(otherUserId).get();
+          if (!otherUserDoc.exists) {
+            return null;
+          }
           const otherUser = otherUserDoc.data() as User;
 
           return {
-            id: doc.id,
+            id: pairMatch.id,
             user: {
               id: otherUserId,
               profile: {
@@ -233,11 +235,17 @@ export class SwipeController {
                 interests: otherUser.profile?.interests || [],
               },
             },
-            createdAt: matchData.createdAt,
-            lastMessageAt: matchData.lastMessageAt,
+            createdAt: pairMatch.createdAt,
+            lastMessageAt: pairMatch.lastActivityAt,
+            sharedEventTypes: pairMatch.sharedEventTypes || [],
+            hasSufficientAvailability: pairMatch.hasSufficientAvailability,
+            suggestedEventType: pairMatch.suggestedEventType || null,
+            availabilityOverlapCount: pairMatch.availabilityOverlapCount || 0,
+            queueStatus: pairMatch.queueStatus,
+            queueEventType: pairMatch.queueEventType ?? null,
           };
         })
-      );
+      ).then(results => results.filter((result): result is NonNullable<typeof result> => result !== null));
 
       return res.status(200).json({
         success: true,
@@ -262,7 +270,7 @@ export class SwipeController {
       const { matchId } = req.params;
 
       // Get match
-      const matchDoc = await db.collection(Collections.MATCHES).doc(matchId).get();
+      const matchDoc = await db.collection(Collections.PAIR_MATCHES).doc(matchId).get();
       if (!matchDoc.exists) {
         return res.status(404).json({
           success: false,
@@ -273,18 +281,23 @@ export class SwipeController {
       const matchData = matchDoc.data();
 
       // Verify user is part of this match
-      if (!matchData?.users.includes(userId)) {
+      if (!matchData?.userIds?.includes(userId)) {
         return res.status(403).json({
           success: false,
           error: 'Not authorized to unmatch',
         } as ApiResponse);
       }
 
+      const now = Timestamp.now();
+
       // Update match status to unmatched
       await matchDoc.ref.update({
-        status: 'unmatched',
+        status: 'inactive',
+        queueStatus: 'sidelined',
         unmatchedBy: userId,
-        unmatchedAt: Timestamp.now(),
+        unmatchedAt: now,
+        updatedAt: now,
+        lastActivityAt: now,
       });
 
       return res.status(200).json({

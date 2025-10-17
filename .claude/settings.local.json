@@ -101,7 +101,10 @@
       "Read(//private/tmp/expo-test-bundle/_expo/static/js/ios/**)",
       "Bash(gcloud projects get-iam-policy:*)",
       "Bash(gcloud secrets list:*)",
-      "Bash(gcloud firestore databases describe:*)"
+      "Bash(gcloud firestore databases describe:*)",
+      "Read(//Users/luffy/Desktop/group_dating/**)",
+      "Bash(gcloud firestore indexes composite create:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key-production.json\" firebase deploy:*)"
     ],
     "deny": [],
     "ask": []

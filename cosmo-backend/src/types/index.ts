@@ -16,6 +16,11 @@ export interface User {
   isActive: boolean;
   isVerified: boolean;
   blockedUsers?: string[];
+  pendingEvents?: PendingEventAssignment[];
+  pendingEventCount?: number;
+  joinedEvents?: string[];
+  eventCancelCount?: number;
+  eventBanUntil?: Timestamp;
 }
 
 export interface UserProfile {
@@ -33,6 +38,7 @@ export interface UserProfile {
   radius: number; // in km
   verified: boolean;
   completedAt?: Timestamp;
+  availability?: AvailabilityMap;
 }
 
 export interface PersonalityTraits {
@@ -72,6 +78,7 @@ export interface Event {
   title: string;
   description: string;
   category: EventCategory;
+  eventType?: EventType;
   date: Timestamp;
   location: {
     name: string;
@@ -91,10 +98,32 @@ export interface Event {
     min: number;
     max: number;
   };
-  status: 'draft' | 'published' | 'ongoing' | 'completed' | 'canceled';
+  status: 'draft' | 'pending_join' | 'ready' | 'published' | 'ongoing' | 'confirmed' | 'completed' | 'canceled';
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  autoOrganized?: boolean;
+  pendingPairMatchIds?: string[];
+  requiredPairCount?: number;
+  participantUserIds?: string[];
+  participantStatuses?: Record<string, EventParticipantStatus>;
+  venueOptions?: EventVenueOption[];
+  venueVoteTotals?: Record<string, number>;
+  finalVenueOptionId?: string | null;
+  suggestedTimes?: EventSuggestedAvailability[];
+  votesSubmittedCount?: number;
+  chatRoomId?: string | null;
+  reminderSent?: boolean;
+  reminderSentAt?: Timestamp | null;
+  confirmationsReceived?: number;
 }
+
+export type EventType =
+  | 'coffee'
+  | 'bar'
+  | 'restaurant'
+  | 'tennis'
+  | 'dog_walking'
+  | 'hiking';
 
 export type EventCategory =
   | 'restaurant'
@@ -149,6 +178,101 @@ export interface MatchPreferences {
   };
   genderPreference: ('male' | 'female' | 'other')[];
   interests: string[];
+}
+
+export type AvailabilitySegment = 'morning' | 'afternoon' | 'evening' | 'night';
+
+export interface AvailabilityEntry {
+  morning: boolean;
+  afternoon: boolean;
+  evening: boolean;
+  night: boolean;
+  blocked: boolean;
+}
+
+export type AvailabilityMap = Record<string, AvailabilityEntry>;
+
+export interface AvailabilityOverlapSegment {
+  date: string;
+  segments: AvailabilitySegment[];
+}
+
+export type EventParticipantStatus =
+  | 'pending_join'
+  | 'joined'
+  | 'declined'
+  | 'canceled'
+  | 'removed'
+  | 'confirmed'
+  | 'completed';
+
+export interface EventParticipant {
+  id: string;
+  eventId: string;
+  userId: string;
+  status: EventParticipantStatus;
+  joinedAt?: Timestamp;
+  canceledAt?: Timestamp;
+  confirmedAt?: Timestamp;
+  lastStatusAt: Timestamp;
+  voteVenueOptionId?: string;
+  voteSubmittedAt?: Timestamp;
+}
+
+export interface EventSuggestedAvailability {
+  date: string;
+  segments: AvailabilitySegment[];
+}
+
+export interface EventVenueOption {
+  id: string;
+  name: string;
+  address: string;
+  coordinates: GeoPoint;
+  description?: string;
+  photos: string[];
+  priceRange?: {
+    min: number;
+    max: number;
+  };
+  durationMinutes?: number;
+  additionalInfo?: string | null;
+}
+
+export interface PendingEventAssignment {
+  eventId: string;
+  eventType: EventType;
+  status: 'pending_join' | 'joined' | 'confirmed' | 'completed' | 'canceled';
+  assignedAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export type PairMatchStatus = 'active' | 'inactive' | 'blocked';
+
+export type PairMatchQueueStatus =
+  | 'awaiting_availability'
+  | 'awaiting_event_type'
+  | 'queued'
+  | 'in_event'
+  | 'sidelined';
+
+export interface PairMatch {
+  id: string;
+  pairKey: string;
+  userIds: [string, string];
+  status: PairMatchStatus;
+  queueStatus: PairMatchQueueStatus;
+  queueEventType?: EventType | null;
+  sharedEventTypes: EventType[];
+  suggestedEventType?: EventType | null;
+  availabilityOverlapCount: number;
+  availabilityOverlapSegments: AvailabilityOverlapSegment[];
+  availabilityComputedAt?: Timestamp;
+  hasSufficientAvailability: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  lastActivityAt: Timestamp;
+  pendingEventId?: string | null;
 }
 
 // Message types
@@ -211,4 +335,5 @@ export interface UpdateProfileRequest {
   location?: { lat: number; lng: number };
   verified?: boolean;
   verificationDate?: string;
+  availability?: AvailabilityMap;
 }

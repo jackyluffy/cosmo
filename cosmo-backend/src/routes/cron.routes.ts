@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { MatchingService } from '../services/matching.service';
+import { EventReminderService } from '../services/event-reminder.service';
+import { EventOrchestrationService } from '../services/event-orchestration.service';
 import { logger } from '../utils/logger';
 import { db, Collections } from '../config/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -239,6 +241,51 @@ router.post('/weekly-analytics', async (req, res) => {
     });
   } catch (error) {
     logger.error('Analytics generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Auto-organize pending events by consuming queued pair matches.
+ * Intended to be triggered by Cloud Scheduler (e.g., every 15 minutes).
+ */
+router.post('/auto-organize-events', async (req, res) => {
+  logger.info('Starting auto event orchestration');
+  try {
+    const createdByType = await EventOrchestrationService.processAllQueues();
+    logger.info('Auto event orchestration completed', createdByType);
+
+    res.json({
+      success: true,
+      createdEvents: createdByType,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    logger.error('Auto event orchestration error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Send 48-hour event reminders to joined participants.
+ */
+router.post('/event-reminders', async (req, res) => {
+  logger.info('Running event reminder scheduler');
+  try {
+    const result = await EventReminderService.sendUpcomingEventReminders();
+    res.json({
+      success: true,
+      processed: result.processed,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    logger.error('Event reminder error:', error);
     res.status(500).json({
       success: false,
       error: error.message,

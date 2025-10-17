@@ -20,12 +20,24 @@ interface User {
     };
     radius: number;
     verified: boolean;
+    availability?: Record<string, any>;
   };
   subscription?: {
     status: 'trial' | 'active' | 'past_due' | 'canceled';
-    trial_event_used: boolean;
+    trial_event_used?: boolean;
+    trialEventUsed?: boolean;
     renews_at?: string;
+    current_period_end?: string;
   };
+  pendingEvents?: Array<{
+    eventId: string;
+    eventType: string;
+    status: 'pending_join' | 'joined' | 'completed' | 'canceled';
+    assignedAt: string;
+    updatedAt: string;
+  }>;
+  pendingEventCount?: number;
+  joinedEvents?: string[];
 }
 
 interface AuthState {
@@ -142,8 +154,39 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (token) {
         // Get user profile from real API
         const response = await realAPI.profile.get();
-        const user = response.data.data;
-        set({ user, isAuthenticated: true, isLoading: false });
+        const rawUser = response.data.data;
+
+        const normalizeTimestamps = (value: any): any => {
+          if (!value || typeof value !== 'object') {
+            return value;
+          }
+          if (typeof value.toDate === 'function') {
+            return value.toDate().toISOString();
+          }
+          if (Array.isArray(value)) {
+            return value.map(normalizeTimestamps);
+          }
+          return Object.fromEntries(
+            Object.entries(value).map(([key, item]) => [key, normalizeTimestamps(item)])
+          );
+        };
+
+        const subscription = rawUser?.subscription
+          ? {
+              ...rawUser.subscription,
+              trial_event_used:
+                rawUser.subscription.trial_event_used ?? rawUser.subscription.trialEventUsed ?? false,
+              trialEventUsed:
+                rawUser.subscription.trialEventUsed ?? rawUser.subscription.trial_event_used ?? false,
+            }
+          : undefined;
+
+        const normalizedUser = {
+          ...normalizeTimestamps(rawUser),
+          subscription,
+        };
+
+        set({ user: normalizedUser, isAuthenticated: true, isLoading: false });
       } else {
         set({ isLoading: false });
       }

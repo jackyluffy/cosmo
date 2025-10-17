@@ -81,6 +81,8 @@ class ProfileController {
                 profileUpdates['profile.radius'] = updates.radius;
             if (updates.photos)
                 profileUpdates['profile.photos'] = updates.photos;
+            if (updates.availability)
+                profileUpdates['profile.availability'] = updates.availability;
             if (updates.location) {
                 console.log('[Profile Update] Creating GeoPoint from:', updates.location);
                 profileUpdates['profile.location'] = new firestore_1.GeoPoint(updates.location.lat, updates.location.lng);

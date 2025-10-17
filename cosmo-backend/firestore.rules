@@ -34,7 +34,7 @@ service cloud.firestore {
     // Groups collection
     match /groups/{groupId} {
       allow read: if isSignedIn() &&
-        request.auth.uid in resource.data.members[*].userId;
+        request.auth.uid in resource.data.memberIds;
       allow write: if false; // Only system can write
     }
 
@@ -49,11 +49,18 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Group chats collection
+    match /group_chats/{chatId} {
+      allow read: if isSignedIn() &&
+        request.auth.uid in resource.data.participantIds;
+      allow write: if false; // server-managed
+    }
+
     // Messages collection
     match /messages/{messageId} {
       allow read: if isSignedIn() &&
-        exists(/databases/$(database)/documents/groups/$(resource.data.chatRoomId)) &&
-        request.auth.uid in get(/databases/$(database)/documents/groups/$(resource.data.chatRoomId)).data.members[*].userId;
+        exists(/databases/$(database)/documents/group_chats/$(resource.data.chatId)) &&
+        request.auth.uid in get(/databases/$(database)/documents/group_chats/$(resource.data.chatId)).data.participantIds;
       allow create: if isSignedIn() &&
         request.resource.data.senderId == request.auth.uid;
       allow update: if isSignedIn() &&

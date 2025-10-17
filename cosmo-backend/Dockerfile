@@ -41,9 +41,6 @@ RUN npm ci && \
 # Copy built application from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy Firebase service account key (production)
-COPY cosmo-firebase-key-production.json ./cosmo-firebase-key-production.json
-
 # Change ownership to nodejs user
 RUN chown -R nodejs:nodejs /app
 

@@ -12,27 +12,14 @@ import {
   Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { realAPI, billingAPI, eventsAPI } from '../../services/api';
-import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 import { format, addDays } from 'date-fns';
+import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 import { useAuthStore } from '../../store/authStore';
-
-interface Event {
-  id: string;
-  title: string;
-  description: string;
-  photos: string[];
-  venue_name: string;
-  venue_address: string;
-  starts_at: string;
-  capacity: number;
-  attendees: number;
-  rsvp_status?: 'yes' | 'no' | null;
-  attendees_preview: Array<{
-    name: string;
-    photo: string;
-  }>;
-}
+import {
+  useEventsStore,
+  AssignmentView,
+  EventVenueOption,
+} from '../../store/eventsStore';
 
 type AvailabilityEntry = {
   morning: boolean;
@@ -42,33 +29,101 @@ type AvailabilityEntry = {
   blocked: boolean;
 };
 
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  coffee: 'Coffee Meetup',
+  bar: 'Bar Social',
+  restaurant: 'Dinner Social',
+  tennis: 'Tennis Social',
+  dog_walking: 'Dog Walk',
+  hiking: 'Hiking Adventure',
+};
+
+const VENUE_PLACEHOLDER =
+  'https://images.unsplash.com/photo-1528605248644-14dd04022da1?w=800';
+
+const formatVenuePrice = (option?: EventVenueOption) => {
+  if (!option?.priceRange) {
+    return null;
+  }
+  const { min, max } = option.priceRange;
+  if (min === max) {
+    return `$${min}`;
+  }
+  return `$${min} - $${max}`;
+};
+
+const formatDuration = (minutes?: number) => {
+  if (!minutes) return null;
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (remainder === 0) return `${hours} hr${hours > 1 ? 's' : ''}`;
+  return `${hours} hr ${remainder} min`;
+};
+
+const safeDate = (value?: string) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getVenueImage = (event: AssignmentView['event'], option?: EventVenueOption) => {
+  if (option?.photos && option.photos.length > 0) {
+    return option.photos[0];
+  }
+  if (event.photos && event.photos.length > 0) {
+    return event.photos[0];
+  }
+  return VENUE_PLACEHOLDER;
+};
+
 export default function EventsScreen({ navigation }: any) {
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { user, updateProfile, loadUser } = useAuthStore();
+  const {
+    assignments,
+    pendingCount,
+    canJoin,
+    loading,
+    fetchAssignments,
+    joinEvent,
+    voteOnEvent,
+    respondToReminder,
+  } = useEventsStore();
+
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedVenues, setSelectedVenues] = useState<Record<string, string>>({});
+  const [joinLoadingIds, setJoinLoadingIds] = useState<Record<string, boolean>>({});
+  const [voteLoadingIds, setVoteLoadingIds] = useState<Record<string, boolean>>({});
+  const [confirmLoadingIds, setConfirmLoadingIds] = useState<Record<string, boolean>>({});
+
   const [availabilityModalVisible, setAvailabilityModalVisible] = useState(false);
   const [availabilityDraft, setAvailabilityDraft] = useState<Record<string, AvailabilityEntry>>({});
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [savingAvailability, setSavingAvailability] = useState(false);
-  const { user, updateProfile, loadUser } = useAuthStore();
 
   useEffect(() => {
-    loadEvents();
-  }, []);
+    fetchAssignments().catch((error) => {
+      console.error('[EventsScreen] Failed to fetch assignments:', error);
+    });
+  }, [fetchAssignments]);
 
-  const loadEvents = async () => {
-    try {
-      const response = await realAPI.events.getAll();
-      setEvents(response.data.data || []);
-    } catch (error) {
-      console.error('Failed to load events:', error);
-      // Set empty array on error
-      setEvents([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+  useEffect(() => {
+    setSelectedVenues((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      assignments.forEach(({ event, participant }) => {
+        const candidate =
+          participant?.voteVenueOptionId ||
+          event.finalVenueOptionId ||
+          event.venueOptions?.[0]?.id;
+        if (candidate && next[event.id] !== candidate) {
+          next[event.id] = candidate;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [assignments]);
 
   const upcomingDates = useMemo(() => {
     return Array.from({ length: 14 }, (_, index) => {
@@ -93,45 +148,6 @@ export default function EventsScreen({ navigation }: any) {
     },
     [availabilityDraft]
   );
-
-  const handleRSVP = async (eventId: string, response: 'yes' | 'no') => {
-    try {
-      const billingStatus = await billingAPI.getStatus();
-      const { status, trial_event_used } = billingStatus.data;
-
-      if (response === 'yes' && status === 'trial' && trial_event_used) {
-        Alert.alert(
-          'Subscription Required',
-          'Your free trial event has been used. Subscribe for $9.99/month to RSVP to more events.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Subscribe',
-              onPress: async () => {
-                const checkout = await billingAPI.createCheckoutSession();
-                navigation.navigate('Checkout', { url: checkout.data.url });
-              },
-            },
-          ]
-        );
-        return;
-      }
-
-      await eventsAPI.rsvp(eventId, response);
-
-      setEvents((prevEvents) =>
-        prevEvents.map((event) =>
-          event.id === eventId ? { ...event, rsvp_status: response } : event
-        )
-      );
-
-      if (response === 'yes') {
-        Alert.alert('RSVP Confirmed!', 'You\'re going to this event! Check the event details for the group chat.');
-      }
-    } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to RSVP. Please try again.');
-    }
-  };
 
   const handleToggleSegment = (segment: keyof Omit<AvailabilityEntry, 'blocked'>) => {
     setAvailabilityDraft((prev) => {
@@ -207,92 +223,205 @@ export default function EventsScreen({ navigation }: any) {
     }
   };
 
-  const renderEvent = (event: Event) => {
-    const eventDate = new Date(event.starts_at);
-    const isRsvpd = event.rsvp_status === 'yes';
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchAssignments({ silent: true });
+    } catch (error) {
+      console.error('[EventsScreen] Refresh failed:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const updateJoinLoading = (eventId: string, value: boolean) => {
+    setJoinLoadingIds((prev) => ({ ...prev, [eventId]: value }));
+  };
+
+  const updateVoteLoading = (eventId: string, value: boolean) => {
+    setVoteLoadingIds((prev) => ({ ...prev, [eventId]: value }));
+  };
+
+  const updateConfirmLoading = (eventId: string, value: boolean) => {
+    setConfirmLoadingIds((prev) => ({ ...prev, [eventId]: value }));
+  };
+
+  const handleSelectVenue = (eventId: string, venueOptionId: string) => {
+    setSelectedVenues((prev) => ({
+      ...prev,
+      [eventId]: venueOptionId,
+    }));
+  };
+
+  const handleConfirmAttendance = async (eventId: string, action: 'confirm' | 'cancel') => {
+    updateConfirmLoading(eventId, true);
+    try {
+      await respondToReminder(eventId, action);
+      Alert.alert(
+        action === 'confirm' ? 'Confirmed!' : 'Cancelled',
+        action === 'confirm'
+          ? 'Great! We will see you there.'
+          : 'Thanks for letting us know. We will find a replacement.'
+      );
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error || error?.message || 'Unable to update attendance.';
+      Alert.alert('Error', message);
+    } finally {
+      updateConfirmLoading(eventId, false);
+    }
+  };
+
+  const handleOpenChat = (chatId: string, eventTitle: string) => {
+    const parentNav = navigation.getParent?.() || navigation;
+    parentNav.navigate('EventChat', { chatId, eventTitle });
+  };
+
+  const handleJoinEvent = async (eventId: string) => {
+    const chosenVenue = selectedVenues[eventId];
+    if (!chosenVenue) {
+      Alert.alert('Choose a venue', 'Select your preferred venue before joining this event.');
+      return;
+    }
+    updateJoinLoading(eventId, true);
+    try {
+      await joinEvent(eventId, chosenVenue);
+      await fetchAssignments({ silent: true });
+      Alert.alert('Joined!', 'Thanks for joining. Your vote has been recorded.');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.message ||
+        'Unable to join this event right now.';
+      Alert.alert('Unable to join', message);
+    } finally {
+      updateJoinLoading(eventId, false);
+    }
+  };
+
+  const handleVote = async (eventId: string) => {
+    const chosenVenue = selectedVenues[eventId];
+    if (!chosenVenue) {
+      Alert.alert('Choose a venue', 'Select your preferred venue to submit a vote.');
+      return;
+    }
+    updateVoteLoading(eventId, true);
+    try {
+      await voteOnEvent(eventId, chosenVenue);
+      await fetchAssignments({ silent: true });
+      Alert.alert('Vote submitted', 'Thanks for sharing your preference!');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.message ||
+        'Unable to submit your vote.';
+      Alert.alert('Vote failed', message);
+    } finally {
+      updateVoteLoading(eventId, false);
+    }
+  };
+
+  const handleSubscribe = () => {
+    navigation.navigate('Subscription', { origin: 'events' });
+  };
+
+  const renderSuggestedTimes = (times?: { date: string; segments: string[] }[]) => {
+    if (!times || times.length === 0) return null;
+    return (
+      <View style={styles.suggestedContainer}>
+        <Text style={styles.sectionLabel}>Suggested Times</Text>
+        {times.slice(0, 3).map((slot) => {
+          const date = safeDate(slot.date);
+          return (
+            <View key={`${slot.date}-${slot.segments.join(',')}`} style={styles.suggestedRow}>
+              <Ionicons name="time-outline" size={16} color={Colors.textSecondary} />
+              <Text style={styles.suggestedText}>
+                {date ? format(date, 'EEE, MMM d') : slot.date} · {slot.segments.join(', ')}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const renderVenueOption = (
+    event: AssignmentView['event'],
+    option: EventVenueOption,
+    isJoined: boolean,
+    finalVenueOptionId?: string | null,
+    voteTotals?: Record<string, number>
+  ) => {
+    const selectedVenueId = selectedVenues[event.id];
+    const isSelected = selectedVenueId === option.id;
+    const isFinal = finalVenueOptionId === option.id;
+    const voteCount = voteTotals?.[option.id] ?? 0;
 
     return (
       <TouchableOpacity
-        key={event.id}
-        style={styles.eventCard}
-        onPress={() => navigation.navigate('EventDetail', { eventId: event.id })}
+        key={option.id}
+        style={[
+          styles.venueOption,
+          isSelected && styles.venueOptionSelected,
+          isFinal && styles.venueOptionFinal,
+        ]}
+        onPress={() => handleSelectVenue(event.id, option.id)}
+        activeOpacity={0.9}
       >
-        <Image
-          source={{ uri: event.photos[0] || 'https://via.placeholder.com/400x200' }}
-          style={styles.eventImage}
-        />
+        <View style={styles.venueImageWrapper}>
+          <Image
+            source={{ uri: getVenueImage(event, option) }}
+            style={styles.venueImage}
+          />
+          <View style={styles.venueOverlay}>
+            <Text style={styles.venueName}>{option.name}</Text>
+            <Text style={styles.venueAddress} numberOfLines={1}>
+              {option.address}
+            </Text>
+          </View>
+        </View>
 
-        <View style={styles.eventContent}>
-          <View style={styles.eventHeader}>
-            <Text style={styles.eventTitle}>{event.title}</Text>
-            {isRsvpd && (
-              <View style={styles.rsvpBadge}>
-                <Ionicons name="checkmark-circle" size={16} color={Colors.white} />
-                <Text style={styles.rsvpBadgeText}>Going</Text>
+        <View style={styles.venueMetaRow}>
+          {option.description ? (
+            <Text style={styles.venueDescription} numberOfLines={2}>
+              {option.description}
+            </Text>
+          ) : null}
+          <View style={styles.venueMetaChips}>
+            {formatVenuePrice(option) && (
+              <View style={styles.venueChip}>
+                <Ionicons name="pricetag-outline" size={14} color={Colors.textSecondary} />
+                <Text style={styles.venueChipText}>{formatVenuePrice(option)}</Text>
+              </View>
+            )}
+            {formatDuration(option.durationMinutes) && (
+              <View style={styles.venueChip}>
+                <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
+                <Text style={styles.venueChipText}>{formatDuration(option.durationMinutes)}</Text>
               </View>
             )}
           </View>
+        </View>
 
-          <View style={styles.eventInfo}>
-            <View style={styles.infoRow}>
-              <Ionicons name="calendar-outline" size={16} color={Colors.textSecondary} />
-              <Text style={styles.infoText}>
-                {format(eventDate, 'EEE, MMM d')} at {format(eventDate, 'h:mm a')}
-              </Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Ionicons name="location-outline" size={16} color={Colors.textSecondary} />
-              <Text style={styles.infoText} numberOfLines={1}>
-                {event.venue_name}
-              </Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Ionicons name="people-outline" size={16} color={Colors.textSecondary} />
-              <Text style={styles.infoText}>
-                {event.attendees}/{event.capacity} attending
-              </Text>
-            </View>
+        <View style={styles.venueFooter}>
+          <View style={styles.voteInfo}>
+            <Ionicons
+              name={isSelected ? 'checkbox' : 'square-outline'}
+              size={18}
+              color={isSelected ? Colors.primary : Colors.textSecondary}
+            />
+            <Text style={styles.voteInfoText}>
+              {isFinal
+                ? 'Selected venue'
+                : isSelected
+                ? 'Your pick'
+                : 'Tap to choose'}
+            </Text>
           </View>
-
-          {event.attendees_preview.length > 0 && (
-            <View style={styles.attendeesPreview}>
-              {event.attendees_preview.slice(0, 3).map((attendee, index) => (
-                <Image
-                  key={index}
-                  source={{ uri: attendee.photo }}
-                  style={[
-                    styles.attendeeAvatar,
-                    { marginLeft: index > 0 ? -10 : 0 },
-                  ]}
-                />
-              ))}
-              {event.attendees > 3 && (
-                <View style={[styles.attendeeAvatar, styles.moreAttendees]}>
-                  <Text style={styles.moreAttendeesText}>
-                    +{event.attendees - 3}
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-
-          {!isRsvpd && (
-            <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.skipButton]}
-                onPress={() => handleRSVP(event.id, 'no')}
-              >
-                <Text style={styles.skipButtonText}>Skip</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.actionButton, styles.rsvpButton]}
-                onPress={() => handleRSVP(event.id, 'yes')}
-              >
-                <Text style={styles.rsvpButtonText}>RSVP</Text>
-              </TouchableOpacity>
+          {(isJoined || isFinal || voteCount > 0) && (
+            <View style={styles.voteCountBadge}>
+              <Ionicons name="people-outline" size={14} color={Colors.primary} />
+              <Text style={styles.voteCountText}>{voteCount}</Text>
             </View>
           )}
         </View>
@@ -300,11 +429,216 @@ export default function EventsScreen({ navigation }: any) {
     );
   };
 
-  if (loading) {
+  const renderAssignmentCard = (item: AssignmentView) => {
+    const { event, assignment, participant } = item;
+    const eventDate = safeDate(event.date);
+    const humanDate = eventDate ? format(eventDate, 'EEE, MMM d') : 'TBD';
+    const humanTime = eventDate ? format(eventDate, 'h:mm a') : '';
+    const eventTypeLabel = event.eventType ? EVENT_TYPE_LABELS[event.eventType] || event.eventType : 'Event';
+    const venueOptions = event.venueOptions || [];
+    const participantStatus = assignment.status;
+    const isJoined =
+      participantStatus === 'joined' ||
+      participantStatus === 'confirmed' ||
+      participantStatus === 'completed' ||
+      participant?.status === 'joined';
+    const hasFinalVenue = Boolean(event.finalVenueOptionId);
+    const joinDisabled = joinLoadingIds[event.id];
+    const voteDisabled = voteLoadingIds[event.id];
+    const confirmLoading = !!confirmLoadingIds[event.id];
+    const reminderSent = event.reminderSent;
+    const showReminderActions = reminderSent && participantStatus === 'joined';
+    const showConfirmedBadge = participantStatus === 'confirmed';
+    const showChatButton = !!event.chatRoomId && isJoined;
+    const showSubscribeCta = assignment.status === 'pending_join' && !canJoin;
+
+    const badgeStyle = [styles.badge];
+    const badgeTextStyle = [styles.badgeText];
+    let badgeLabel = 'Pending';
+
+    if (participantStatus === 'joined') {
+      badgeLabel = 'Joined';
+      badgeStyle.push(styles.badgeJoined);
+    } else if (participantStatus === 'confirmed') {
+      badgeLabel = 'Confirmed';
+      badgeStyle.push(styles.badgeConfirmed);
+      badgeTextStyle.push(styles.badgeConfirmedText);
+    } else if (participantStatus === 'canceled') {
+      badgeLabel = 'Canceled';
+      badgeStyle.push(styles.badgeCanceled);
+      badgeTextStyle.push(styles.badgeCanceledText);
+    }
+
+    const statuses = event.participantStatuses || {};
+    const activeStatuses = Object.values(statuses).filter(
+      (status) => status !== 'canceled' && status !== 'removed'
+    );
+    const confirmedCount =
+      event.confirmationsReceived ?? activeStatuses.filter((status) => status === 'confirmed').length;
+    const activeCount = activeStatuses.length;
+
+    return (
+      <View key={event.id} style={styles.eventCard}>
+        <View style={styles.cardHeader}>
+          <View style={styles.cardHeaderText}>
+            <Text style={styles.cardTitle}>{event.title}</Text>
+            <Text style={styles.cardSubtitle}>
+              {eventTypeLabel} • {event.organizer?.name || 'Cosmo Events'}
+            </Text>
+          </View>
+          <View style={badgeStyle}>
+            <Text style={badgeTextStyle}>{badgeLabel}</Text>
+          </View>
+        </View>
+
+        <View style={styles.cardInfo}>
+          <View style={styles.infoRow}>
+            <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
+            <Text style={styles.infoText}>
+              {humanDate}
+              {humanTime ? ` at ${humanTime}` : ''}
+            </Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Ionicons name="location-outline" size={18} color={Colors.textSecondary} />
+            <Text style={styles.infoText} numberOfLines={1}>
+              {event.location?.name}
+            </Text>
+          </View>
+        </View>
+
+        {renderSuggestedTimes(event.suggestedTimes)}
+
+        {activeCount > 0 && (
+          <View style={styles.confirmationMeta}>
+            <Ionicons name="people-outline" size={16} color={Colors.textSecondary} />
+            <Text style={styles.confirmationMetaText}>
+              {confirmedCount}/{activeCount} confirmed
+            </Text>
+          </View>
+        )}
+
+        <Text style={styles.sectionLabel}>Vote on the meetup spot</Text>
+        <Text style={styles.sectionHelper}>
+          Pick the venue that works best for you. Once everyone joins, the most voted option wins.
+        </Text>
+
+        {venueOptions.length === 0 ? (
+          <View style={styles.emptyVenues}>
+            <Text style={styles.emptyVenuesText}>
+              Venue options are being finalized. Please check back soon!
+            </Text>
+          </View>
+        ) : (
+          venueOptions.map((option) =>
+            renderVenueOption(event, option, isJoined, event.finalVenueOptionId, event.venueVoteTotals)
+          )
+        )}
+
+        {hasFinalVenue && (
+          <View style={styles.finalVenueCallout}>
+            <Ionicons name="star" size={16} color={Colors.primary} />
+            <Text style={styles.finalVenueText}>
+              Final venue: {
+                venueOptions.find((opt) => opt.id === event.finalVenueOptionId)?.name ||
+                'TBA'
+              }
+            </Text>
+          </View>
+        )}
+
+        {showConfirmedBadge && (
+          <View style={styles.confirmedPill}>
+            <Ionicons name="checkmark-circle-outline" size={16} color={Colors.success} />
+            <Text style={styles.confirmedPillText}>You’re confirmed</Text>
+          </View>
+        )}
+
+        {assignment.status === 'pending_join' && (
+          showSubscribeCta ? (
+            <TouchableOpacity style={styles.subscribeButton} onPress={handleSubscribe}>
+              <Text style={styles.subscribeButtonText}>Subscribe to Join Events</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.primaryButton, joinDisabled && styles.disabledButton]}
+              onPress={() => handleJoinEvent(event.id)}
+              disabled={joinDisabled}
+            >
+              {joinDisabled ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <Text style={styles.primaryButtonText}>Join & Vote</Text>
+              )}
+            </TouchableOpacity>
+          )
+        )}
+
+        {assignment.status === 'joined' && !hasFinalVenue && (
+          <TouchableOpacity
+            style={[styles.secondaryButton, voteDisabled && styles.disabledButton]}
+            onPress={() => handleVote(event.id)}
+            disabled={voteDisabled}
+          >
+            {voteDisabled ? (
+              <ActivityIndicator color={Colors.primary} />
+            ) : (
+              <Text style={styles.secondaryButtonText}>
+                {participant?.voteVenueOptionId ? 'Update Vote' : 'Submit Vote'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        )}
+
+        {hasFinalVenue && isJoined && event.chatRoomId && (
+          <TouchableOpacity
+            style={[styles.secondaryButton, styles.chatButton]}
+            onPress={() => handleOpenChat(event.chatRoomId!, event.title)}
+          >
+            <Ionicons name="chatbubbles-outline" size={18} color={Colors.primary} />
+            <Text style={styles.chatButtonText}>Open Group Chat</Text>
+          </TouchableOpacity>
+        )}
+
+        {showReminderActions && (
+          <View style={styles.reminderActions}>
+            <TouchableOpacity
+              style={[styles.primaryButton, styles.confirmButton, confirmLoading && styles.disabledButton]}
+              onPress={() => handleConfirmAttendance(event.id, 'confirm')}
+              disabled={confirmLoading}
+            >
+              {confirmLoading ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <Text style={styles.primaryButtonText}>Confirm Attendance</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.cancelButton, confirmLoading && styles.disabledButton]}
+              onPress={() => handleConfirmAttendance(event.id, 'cancel')}
+              disabled={confirmLoading}
+            >
+              {confirmLoading ? (
+                <ActivityIndicator color={Colors.error} />
+              ) : (
+                <Text style={styles.cancelButtonText}>I Can’t Make It</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const hasAssignments = assignments.length > 0;
+
+  if (loading && !hasAssignments) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Finding events for you...</Text>
+        <Text style={styles.loadingText}>Organizing your upcoming events…</Text>
       </View>
     );
   }
@@ -314,8 +648,17 @@ export default function EventsScreen({ navigation }: any) {
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <View style={styles.headerTextContainer}>
-            <Text style={styles.headerTitle}>Your Events</Text>
-            <Text style={styles.headerSubtitle}>Curated events matching your interests</Text>
+            <View style={styles.titleRow}>
+              <Text style={styles.headerTitle}>Your Events</Text>
+              {pendingCount > 0 && (
+                <View style={styles.headerBadge}>
+                  <Text style={styles.headerBadgeText}>{pendingCount}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.headerSubtitle}>
+              Cosmo finds the group, you just pick the vibe.
+            </Text>
           </View>
           <TouchableOpacity style={styles.headerIconButton} onPress={handleOpenAvailability}>
             <Ionicons name="calendar-outline" size={22} color={Colors.white} />
@@ -325,29 +668,29 @@ export default function EventsScreen({ navigation }: any) {
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          !hasAssignments && styles.scrollContentCentered,
+        ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              loadEvents();
-            }}
+            onRefresh={handleRefresh}
             tintColor={Colors.primary}
           />
         }
       >
-        {events.length === 0 ? (
+        {!hasAssignments ? (
           <View style={styles.emptyContainer}>
-            <Ionicons name="calendar-outline" size={64} color={Colors.lightGray} />
-            <Text style={styles.emptyTitle}>No events yet</Text>
+            <Ionicons name="sparkles" size={64} color={Colors.lightGray} />
+            <Text style={styles.emptyTitle}>Keep swiping!</Text>
             <Text style={styles.emptySubtitle}>
-              Keep swiping to find your perfect group!
+              Mutual likes with overlapping schedules will unlock curated events here.
             </Text>
           </View>
         ) : (
-          events.map(renderEvent)
+          assignments.map(renderAssignmentCard)
         )}
       </ScrollView>
 
@@ -469,6 +812,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   headerTextContainer: {
     flex: 1,
     paddingRight: Spacing.md,
@@ -494,11 +841,29 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
+  headerBadge: {
+    marginLeft: Spacing.sm,
+    backgroundColor: Colors.error,
+    borderRadius: BorderRadius.round,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    minWidth: 24,
+    alignItems: 'center',
+  },
+  headerBadgeText: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     padding: Spacing.lg,
+  },
+  scrollContentCentered: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   loadingContainer: {
     flex: 1,
@@ -511,10 +876,9 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
   },
   emptyContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: Spacing.xxl * 2,
+    paddingVertical: Spacing.xxl,
   },
   emptyTitle: {
     ...Typography.h3,
@@ -525,56 +889,62 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: Spacing.sm,
     textAlign: 'center',
+    paddingHorizontal: Spacing.lg,
   },
   eventCard: {
     backgroundColor: Colors.white,
     borderRadius: BorderRadius.lg,
     marginBottom: Spacing.lg,
     overflow: 'hidden',
-    shadowColor: Colors.black,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 3.84,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  eventImage: {
-    width: '100%',
-    height: 180,
-    resizeMode: 'cover',
-  },
-  eventContent: {
-    padding: Spacing.lg,
-  },
-  eventHeader: {
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: Spacing.md,
-  },
-  eventTitle: {
-    ...Typography.h3,
-    flex: 1,
-  },
-  rsvpBadge: {
-    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.success,
-    paddingHorizontal: Spacing.sm,
+    padding: Spacing.lg,
+  },
+  cardHeaderText: {
+    flex: 1,
+    paddingRight: Spacing.sm,
+  },
+  cardTitle: {
+    ...Typography.h3,
+  },
+  cardSubtitle: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
+  },
+  badge: {
+    backgroundColor: Colors.primary100,
+    paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.round,
-    marginLeft: Spacing.sm,
   },
-  rsvpBadgeText: {
-    ...Typography.caption,
-    color: Colors.white,
+  badgeText: {
+    color: Colors.primary600,
+    fontSize: 12,
     fontWeight: '600',
-    marginLeft: Spacing.xs,
   },
-  eventInfo: {
-    marginBottom: Spacing.md,
+  badgeJoined: {
+    backgroundColor: Colors.primary100,
+  },
+  badgeConfirmed: {
+    backgroundColor: Colors.success,
+  },
+  badgeConfirmedText: {
+    color: Colors.white,
+  },
+  badgeCanceled: {
+    backgroundColor: Colors.error,
+  },
+  badgeCanceledText: {
+    color: Colors.white,
+  },
+  cardInfo: {
+    paddingHorizontal: Spacing.lg,
   },
   infoRow: {
     flexDirection: 'row',
@@ -587,120 +957,320 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.sm,
     flex: 1,
   },
-  attendeesPreview: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
+  sectionLabel: {
+    ...Typography.bodySmall,
+    fontWeight: '600',
+    color: Colors.text,
+    paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.lg,
   },
-  attendeeAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: Colors.white,
-  },
-  moreAttendees: {
-    backgroundColor: Colors.primary100,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: -10,
-  },
-  moreAttendeesText: {
+  sectionHelper: {
     ...Typography.caption,
-    color: Colors.primary600,
+    color: Colors.textSecondary,
+    paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  confirmationMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  confirmationMetaText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginLeft: Spacing.xs,
+  },
+  venueOption: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+    backgroundColor: Colors.white,
+  },
+  venueOptionSelected: {
+    borderColor: Colors.primary,
+    borderWidth: 2,
+  },
+  venueOptionFinal: {
+    borderColor: Colors.success,
+  },
+  venueImageWrapper: {
+    position: 'relative',
+    height: 160,
+  },
+  venueImage: {
+    width: '100%',
+    height: '100%',
+  },
+  venueOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: Spacing.md,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  venueName: {
+    color: Colors.white,
+    fontSize: 16,
     fontWeight: '600',
   },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: Spacing.md,
+  venueAddress: {
+    color: Colors.white,
+    fontSize: 12,
+    marginTop: 2,
   },
-  actionButton: {
-    flex: 1,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
+  venueMetaRow: {
+    padding: Spacing.md,
+  },
+  venueDescription: {
+    ...Typography.bodySmall,
+    color: Colors.text,
+    marginBottom: Spacing.sm,
+  },
+  venueMetaChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  venueChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.round,
+    backgroundColor: Colors.primary100,
+  },
+  venueChipText: {
+    color: Colors.primary600,
+    fontSize: 12,
+    marginLeft: Spacing.xs,
+  },
+  venueFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.md,
+  },
+  voteInfo: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  skipButton: {
-    backgroundColor: Colors.lightGray,
+  voteInfoText: {
+    ...Typography.caption,
+    marginLeft: Spacing.xs,
   },
-  skipButtonText: {
-    ...Typography.body,
+  voteCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary100,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.round,
+  },
+  voteCountText: {
+    color: Colors.primary600,
+    fontSize: 12,
+    marginLeft: Spacing.xs,
+  },
+  suggestedContainer: {
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  suggestedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: Spacing.xs,
+  },
+  suggestedText: {
+    ...Typography.caption,
     color: Colors.textSecondary,
+    marginLeft: Spacing.xs,
+  },
+  finalVenueCallout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.primary100,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+  },
+  finalVenueText: {
+    ...Typography.bodySmall,
+    color: Colors.primary600,
+    marginLeft: Spacing.sm,
+  },
+  confirmedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.success,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.round,
+  },
+  confirmedPillText: {
+    color: Colors.white,
+    fontSize: 13,
     fontWeight: '600',
+    marginLeft: Spacing.xs,
   },
-  rsvpButton: {
+  primaryButton: {
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.round,
     backgroundColor: Colors.primary,
+    alignItems: 'center',
   },
-  rsvpButtonText: {
-    ...Typography.body,
+  primaryButtonText: {
     color: Colors.white,
     fontWeight: '600',
+    fontSize: 16,
+  },
+  secondaryButton: {
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.round,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: Colors.primary,
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  chatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatButtonText: {
+    color: Colors.primary,
+    fontWeight: '600',
+    fontSize: 16,
+    marginLeft: Spacing.xs,
+  },
+  subscribeButton: {
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.round,
+    backgroundColor: Colors.error,
+    alignItems: 'center',
+  },
+  subscribeButtonText: {
+    color: Colors.white,
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  emptyVenues: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    backgroundColor: Colors.lightGray,
+    marginHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
+  },
+  emptyVenuesText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  reminderActions: {
+    flexDirection: 'column',
+    marginTop: Spacing.md,
+  },
+  confirmButton: {
+    marginHorizontal: Spacing.lg,
+  },
+  cancelButton: {
+    flex: 1,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.round,
+    borderWidth: 1,
+    borderColor: Colors.error,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: Colors.error,
+    fontWeight: '600',
+    fontSize: 16,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'flex-end',
   },
   availabilityModal: {
     backgroundColor: Colors.white,
     borderTopLeftRadius: BorderRadius.xl,
     borderTopRightRadius: BorderRadius.xl,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
+    padding: Spacing.lg,
     paddingBottom: Spacing.xxl,
-    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.lg,
   },
   modalTitle: {
-    ...Typography.h2,
+    ...Typography.h3,
   },
   calendarScroll: {
     marginBottom: Spacing.lg,
   },
   calendarChip: {
-    backgroundColor: Colors.background,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.lightGray,
     marginRight: Spacing.sm,
     alignItems: 'center',
   },
   calendarChipSelected: {
     backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
   },
   calendarChipLabel: {
     ...Typography.caption,
     color: Colors.textSecondary,
-    fontWeight: '700',
-  },
-  calendarChipDate: {
-    ...Typography.bodySmall,
-    color: Colors.text,
-    fontWeight: '600',
   },
   calendarChipLabelSelected: {
     color: Colors.white,
+    fontWeight: '600',
+  },
+  calendarChipDate: {
+    ...Typography.caption,
+    marginTop: 2,
   },
   segmentTitle: {
-    ...Typography.body,
+    ...Typography.bodySmall,
     fontWeight: '600',
     marginBottom: Spacing.sm,
   },
   segmentButton: {
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.lg,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.round,
     borderWidth: 1,
     borderColor: Colors.border,
-    backgroundColor: Colors.background,
     marginBottom: Spacing.sm,
   },
   segmentButtonSelected: {
@@ -708,51 +1278,34 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
   },
   segmentButtonText: {
-    ...Typography.body,
-    color: Colors.text,
-    textAlign: 'center',
+    ...Typography.bodySmall,
+    color: Colors.textSecondary,
   },
   segmentButtonTextSelected: {
     color: Colors.primary600,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   segmentActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: Spacing.lg,
+    marginVertical: Spacing.md,
   },
   actionChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.xs,
+    backgroundColor: Colors.lightGray,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.round,
-    backgroundColor: Colors.primary100,
   },
   actionChipLabel: {
     ...Typography.caption,
-    color: Colors.primary600,
-    fontWeight: '600',
-  },
-  primaryButton: {
-    backgroundColor: Colors.primary,
-    paddingVertical: Spacing.lg,
-    borderRadius: BorderRadius.round,
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  primaryButtonText: {
-    ...Typography.body,
-    color: Colors.white,
-    fontWeight: '600',
+    marginLeft: Spacing.xs,
   },
   modalFooterNote: {
     ...Typography.caption,
     color: Colors.textSecondary,
     textAlign: 'center',
+    marginTop: Spacing.lg,
   },
 });
