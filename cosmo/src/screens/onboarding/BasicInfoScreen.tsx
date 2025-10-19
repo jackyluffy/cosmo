@@ -22,6 +22,7 @@ interface BasicInfoScreenProps {
 type Gender = 'male' | 'female' | 'non-binary' | 'other';
 type SocialPlatform = 'instagram' | 'wechat' | null;
 type GenderPreference = 'male' | 'female' | 'both';
+type Ethnicity = 'Asian' | 'Black' | 'Hispanic' | 'White' | 'Mixed' | 'Other';
 
 export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
   const { logout } = useAuthStore();
@@ -31,6 +32,7 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
   const [showHeightPicker, setShowHeightPicker] = useState(false);
   const [gender, setGender] = useState<Gender | null>(null);
   const [genderPreference, setGenderPreference] = useState<GenderPreference | null>(null);
+  const [ethnicity, setEthnicity] = useState<Ethnicity | null>(null);
   const [socialPlatform, setSocialPlatform] = useState<SocialPlatform>(null);
   const [socialHandle, setSocialHandle] = useState('');
   const [job, setJob] = useState('');
@@ -93,6 +95,11 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
       return;
     }
 
+    if (!ethnicity) {
+      Alert.alert('Ethnicity Required', 'Please select your ethnicity');
+      return;
+    }
+
     if (!height) {
       Alert.alert('Height Required', 'Please select your height');
       return;
@@ -118,6 +125,7 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
         height: height,
         gender,
         genderPreference,
+        ethnicity,
         bio: oneThingAboutMe.trim(),
       };
 
@@ -373,6 +381,33 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
           </View>
         </View>
 
+        {/* Ethnicity Selection */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Ethnicity *</Text>
+          <View style={styles.genderGrid}>
+            {(['Asian', 'Black', 'Hispanic', 'White', 'Mixed', 'Other'] as Ethnicity[]).map((eth) => (
+              <TouchableOpacity
+                key={eth}
+                style={[
+                  styles.genderButton,
+                  ethnicity === eth && styles.genderButtonSelected,
+                ]}
+                onPress={() => setEthnicity(eth)}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.genderLabel,
+                    ethnicity === eth && styles.genderLabelSelected,
+                  ]}
+                >
+                  {eth}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
         {/* Job Input */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Job / Occupation (Optional)</Text>
@@ -486,10 +521,10 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
         <TouchableOpacity
           style={[
             styles.continueButton,
-            (!name || !age || !height || !gender || !genderPreference || !oneThingAboutMe) && styles.continueButtonDisabled,
+            (!name || !age || !height || !gender || !genderPreference || !ethnicity || !oneThingAboutMe) && styles.continueButtonDisabled,
           ]}
           onPress={handleContinue}
-          disabled={!name || !age || !height || !gender || !genderPreference || !oneThingAboutMe || isLoading}
+          disabled={!name || !age || !height || !gender || !genderPreference || !ethnicity || !oneThingAboutMe || isLoading}
         >
           {isLoading ? (
             <ActivityIndicator color={Colors.white} />

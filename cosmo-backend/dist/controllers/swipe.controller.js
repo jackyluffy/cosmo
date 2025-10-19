@@ -36,6 +36,17 @@ class SwipeController {
             if (isDev && !hasLocation) {
                 console.log('[getDeck] DEV MODE: Allowing access without location');
             }
+            const normalizedUserInterests = (user.profile?.interests || [])
+                .filter((interest) => typeof interest === 'string')
+                .map((interest) => interest.trim().toLowerCase())
+                .filter((interest) => interest.length > 0);
+            if (normalizedUserInterests.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Please add interests to your profile to see potential matches',
+                });
+            }
+            const userInterestSet = new Set(normalizedUserInterests);
             // Get users the current user has already swiped on
             const swipesSnapshot = await firebase_1.db
                 .collection(firebase_1.Collections.SWIPES)
@@ -52,11 +63,19 @@ class SwipeController {
             console.log(`[getDeck] Found ${usersSnapshot.docs.length} users with isActive=true`);
             const potentialMatches = usersSnapshot.docs
                 .map(doc => ({ id: doc.id, ...doc.data() }))
-                .filter(u => u.id !== userId && // Not self
-                !swipedUserIds.includes(u.id) && // Not already swiped
-                u.profile && // Has profile
-                u.profile.photos && u.profile.photos.length > 0 // Has photos
-            )
+                .filter((u) => {
+                const rawInterests = Array.isArray(u.profile?.interests) ? u.profile?.interests : [];
+                const candidateInterests = rawInterests
+                    .filter((interest) => typeof interest === 'string')
+                    .map((interest) => interest.trim().toLowerCase())
+                    .filter((interest) => interest.length > 0);
+                const hasSharedInterest = candidateInterests.some((interest) => userInterestSet.has(interest));
+                return (u.id !== userId && // Not self
+                    !swipedUserIds.includes(u.id) && // Not already swiped
+                    u.profile && // Has profile
+                    u.profile.photos && u.profile.photos.length > 0 && // Has photos
+                    hasSharedInterest);
+            })
                 .map(u => ({
                 id: u.id,
                 profile: {

@@ -41,6 +41,20 @@ export class SwipeController {
         console.log('[getDeck] DEV MODE: Allowing access without location');
       }
 
+      const normalizedUserInterests = (user.profile?.interests || [])
+        .filter((interest): interest is string => typeof interest === 'string')
+        .map((interest) => interest.trim().toLowerCase())
+        .filter((interest) => interest.length > 0);
+
+      if (normalizedUserInterests.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Please add interests to your profile to see potential matches',
+        } as ApiResponse);
+      }
+
+      const userInterestSet = new Set(normalizedUserInterests);
+
       // Get users the current user has already swiped on
       const swipesSnapshot = await db
         .collection(Collections.SWIPES)
@@ -61,12 +75,25 @@ export class SwipeController {
 
       const potentialMatches = usersSnapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as User))
-        .filter(u =>
-          u.id !== userId && // Not self
-          !swipedUserIds.includes(u.id) && // Not already swiped
-          u.profile && // Has profile
-          u.profile.photos && u.profile.photos.length > 0 // Has photos
-        )
+        .filter((u) => {
+          const rawInterests = Array.isArray(u.profile?.interests) ? u.profile?.interests : [];
+          const candidateInterests = rawInterests
+            .filter((interest): interest is string => typeof interest === 'string')
+            .map((interest) => interest.trim().toLowerCase())
+            .filter((interest) => interest.length > 0);
+
+          const hasSharedInterest = candidateInterests.some((interest) =>
+            userInterestSet.has(interest)
+          );
+
+          return (
+            u.id !== userId && // Not self
+            !swipedUserIds.includes(u.id) && // Not already swiped
+            u.profile && // Has profile
+            u.profile.photos && u.profile.photos.length > 0 && // Has photos
+            hasSharedInterest
+          );
+        })
         .map(u => ({
           id: u.id,
           profile: {

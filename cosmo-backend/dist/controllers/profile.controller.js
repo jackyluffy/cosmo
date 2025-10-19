@@ -4,6 +4,7 @@ exports.ProfileController = void 0;
 const firebase_1 = require("../config/firebase");
 const firestore_1 = require("firebase-admin/firestore");
 const storage_service_1 = require("../services/storage.service");
+const availability_1 = require("../utils/availability");
 class ProfileController {
     /**
      * Get current user profile
@@ -49,7 +50,12 @@ class ProfileController {
         try {
             const userId = req.userId;
             const updates = req.body;
+            const originalBody = req._originalBody || {};
             console.log('[Profile Update] Received updates:', JSON.stringify(updates, null, 2));
+            if (updates.availability === undefined && originalBody?.availability) {
+                console.log('[Profile Update] Restoring availability from original request body');
+                updates.availability = originalBody.availability;
+            }
             // Validate age if provided
             if (updates.age !== undefined) {
                 if (updates.age < 18 || updates.age > 100) {
@@ -81,8 +87,11 @@ class ProfileController {
                 profileUpdates['profile.radius'] = updates.radius;
             if (updates.photos)
                 profileUpdates['profile.photos'] = updates.photos;
-            if (updates.availability)
-                profileUpdates['profile.availability'] = updates.availability;
+            if (updates.availability !== undefined) {
+                const normalizedAvailability = (0, availability_1.normalizeAvailabilityMap)(updates.availability);
+                profileUpdates['profile.availability'] = normalizedAvailability;
+                profileUpdates['profile.availabilityUpdatedAt'] = firestore_1.Timestamp.now();
+            }
             if (updates.location) {
                 console.log('[Profile Update] Creating GeoPoint from:', updates.location);
                 profileUpdates['profile.location'] = new firestore_1.GeoPoint(updates.location.lat, updates.location.lng);
@@ -106,8 +115,15 @@ class ProfileController {
                 profileUpdates['profile.verified'] = false; // Needs admin verification
             }
             profileUpdates.updatedAt = firestore_1.Timestamp.now();
+            console.log('[Profile Update] profileUpdates object:', JSON.stringify(profileUpdates, null, 2));
+            console.log('[Profile Update] Has availability?', !!profileUpdates['profile.availability']);
+            if (profileUpdates['profile.availability']) {
+                console.log('[Profile Update] Availability data:', JSON.stringify(profileUpdates['profile.availability'], null, 2));
+            }
             // Update profile
+            console.log('[Profile Update] About to update user:', userId);
             await firebase_1.db.collection(firebase_1.Collections.USERS).doc(userId).update(profileUpdates);
+            console.log('[Profile Update] Update completed successfully');
             // Get updated user
             const updatedDoc = await firebase_1.db.collection(firebase_1.Collections.USERS).doc(userId).get();
             const updatedUser = { id: updatedDoc.id, ...updatedDoc.data() };

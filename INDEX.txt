@@ -1,0 +1,261 @@
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║           EVENT CREATION FROM pair_matches - DOCUMENTATION INDEX               ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+QUICK NAVIGATION
+════════════════════════════════════════════════════════════════════════════════
+
+Need a quick answer?
+  → PAIR_MATCHES_QUICK_REFERENCE.md
+     Section: Common Questions (Q&A format)
+     Section: Debugging Tips
+     Section: State Machine
+
+Need to understand the flow visually?
+  → EVENT_CREATION_DIAGRAM.txt
+     Stage 1: User swipes → Pair created
+     Stage 2: Cron job → Queue processing
+     Stage 3: Event creation
+     Stage 4: Cascade updates
+
+Need the complete technical details?
+  → EVENT_CREATION_ANALYSIS.md
+     Section 1-17: Comprehensive breakdown
+     Example: End-to-end timeline
+
+Need to navigate the codebase?
+  → EVENT_CREATION_ANALYSIS.md, Section 12: File Locations
+  → README_EVENT_CREATION.md, Section: Key Files
+
+═════════════════════════════════════════════════════════════════════════════════
+
+READING PATH BY USE CASE
+════════════════════════════════════════════════════════════════════════════════
+
+1. "I just need the TL;DR"
+   Read: PAIR_MATCHES_QUICK_REFERENCE.md (10 min)
+   └─ Sections: TL;DR, pair_matches Fields, Queue Status Meanings
+
+2. "I need to debug an issue"
+   Read: PAIR_MATCHES_QUICK_REFERENCE.md (5 min)
+   └─ Sections: Debugging Tips, Common Queries
+   Then check: README_EVENT_CREATION.md
+   └─ Section: Troubleshooting Checklist
+
+3. "I need to implement or modify this"
+   Read: EVENT_CREATION_ANALYSIS.md (30 min)
+   └─ All 17 sections, especially Stages 1-4
+   Refer to: EVENT_CREATION_DIAGRAM.txt
+   └─ For visual logic flow
+
+4. "I'm debugging production issues"
+   Read: PAIR_MATCHES_QUICK_REFERENCE.md (2 min)
+   └─ Section: Debugging Tips
+   Read: EVENT_CREATION_DIAGRAM.txt (2 min)
+   └─ Find the stage where issue occurs
+   Read: EVENT_CREATION_ANALYSIS.md (5 min)
+   └─ That specific stage section
+
+5. "I need to set up Cloud Scheduler"
+   Read: PAIR_MATCHES_QUICK_REFERENCE.md (3 min)
+   └─ Section: Cron Job Details
+   Read: EVENT_CREATION_ANALYSIS.md (5 min)
+   └─ Section 11: Cron Job Configuration
+
+6. "I need to understand query patterns"
+   Read: PAIR_MATCHES_QUICK_REFERENCE.md (5 min)
+   └─ Section: Common Queries
+   Read: EVENT_CREATION_DIAGRAM.txt (3 min)
+   └─ Section: Query Patterns
+
+═════════════════════════════════════════════════════════════════════════════════
+
+DOCUMENT CROSS-REFERENCES
+════════════════════════════════════════════════════════════════════════════════
+
+Topic: pair_matches Schema
+  Quick Reference: PAIR_MATCHES_QUICK_REFERENCE.md → "pair_matches Document Fields"
+  Detailed: EVENT_CREATION_ANALYSIS.md → "Section 2: pair_matches Table Schema"
+
+Topic: Queue Status
+  Quick Reference: PAIR_MATCHES_QUICK_REFERENCE.md → "Queue Status Meanings"
+  Detailed: EVENT_CREATION_ANALYSIS.md → "Section 10: Queue Status Determination"
+
+Topic: Event Creation Process
+  Visual: EVENT_CREATION_DIAGRAM.txt → "STAGE 3: EVENT DOCUMENT CREATION"
+  Detailed: EVENT_CREATION_ANALYSIS.md → "Section 7: Event Document Creation"
+
+Topic: Cron Job
+  Quick: PAIR_MATCHES_QUICK_REFERENCE.md → "Cron Job Details"
+  Detailed: EVENT_CREATION_ANALYSIS.md → "Section 11: Cron Job Configuration"
+  Code: EVENT_CREATION_ANALYSIS.md → "Section 12: File Locations"
+
+Topic: Availability Calculation
+  Example: PAIR_MATCHES_QUICK_REFERENCE.md → "Availability Overlap Calculation"
+  Logic: EVENT_CREATION_ANALYSIS.md → "Stage 1: upsertPairMatch()"
+
+Topic: File Locations
+  Map: EVENT_CREATION_ANALYSIS.md → "Section 12: File Locations Summary"
+  Quick: README_EVENT_CREATION.md → "Key Files"
+
+Topic: Troubleshooting
+  Tips: PAIR_MATCHES_QUICK_REFERENCE.md → "Debugging Tips"
+  Checklist: README_EVENT_CREATION.md → "Troubleshooting Checklist"
+  Issues: EVENT_CREATION_ANALYSIS.md → "Section 17: Troubleshooting"
+
+═════════════════════════════════════════════════════════════════════════════════
+
+SECTION QUICK LOOKUP
+════════════════════════════════════════════════════════════════════════════════
+
+README_EVENT_CREATION.md
+  1. Quick Start
+  2. Complete Documentation (reading order)
+  3. Architecture Overview
+  4. Key Files (categorized)
+  5. Critical Concepts
+  6. Common Questions (Q&A)
+  7. Database Collections (schema)
+  8. Troubleshooting Checklist
+  9. Monitoring & Debugging
+ 10. Performance Considerations
+ 11. Future Enhancements
+
+PAIR_MATCHES_QUICK_REFERENCE.md
+  1. TL;DR - Events from pair_matches (5-step summary)
+  2. pair_matches Document Fields (table)
+  3. Queue Status Meanings
+  4. Event Types Supported
+  5. Event Creation Threshold
+  6. Availability Overlap Calculation
+  7. Queued Pair → Event Creation Process
+  8. Cron Job Details
+  9. Common Queries (4 examples)
+ 10. Important Rules & Constraints
+ 11. State Machine (ASCII diagram)
+ 12. Files to Review
+ 13. Debugging Tips
+ 14. Example: Coffee Event Creation
+ 15. Collection Growth Pattern
+
+EVENT_CREATION_DIAGRAM.txt
+  1. Stage 1: Pair Match Creation (User Action)
+  2. Stage 2: Scheduled Queue Processing (Cron Job)
+  3. Stage 3: Event Orchestration Service
+  4. Stage 4: Event Document Creation
+  5. Stage 5: Cascade Updates
+  6. Collection Relationships
+  7. Query Patterns
+  8. File References
+
+EVENT_CREATION_ANALYSIS.md
+  1. Overview
+  2. Data Flow Architecture
+  3. pair_matches Table Schema
+  4. Event Types Supported
+  5. Stage 1: Pair Match Creation (from Swipes)
+  6. Stage 2: Scheduled Queue Processing (Cron Job)
+  7. Stage 3: Event Orchestration Service
+  8. Event Document Creation
+  9. pair_matches Updates
+ 10. User Updates (pendingEvents)
+ 11. Queue Status Determination Logic
+ 12. Cron Job Configuration
+ 13. File Locations Summary
+ 14. Collection Dependencies
+ 15. Key Constraints & Rules
+ 16. Example End-to-End Flow
+ 17. Troubleshooting pair_matches Issues
+
+═════════════════════════════════════════════════════════════════════════════════
+
+CRITICAL INFORMATION SUMMARY
+════════════════════════════════════════════════════════════════════════════════
+
+What: How events are created from the pair_matches Firestore collection
+When: Every 15 minutes via Cloud Scheduler cron job
+Where: /cron/auto-organize-events endpoint
+Who: EventOrchestrationService.processAllQueues()
+Why: Batch pair matches into events when enough users are ready
+
+Key Threshold:
+  Events created when: queuedPairs.length >= floor(groupSize / 2)
+  Coffee (4 people): need 2 pairs
+  Restaurant (6 people): need 3 pairs
+
+Queue Requirements:
+  Availability overlap >= 2 date-time segments
+  Shared event interests (at least 1)
+  
+Event Types: coffee, bar, restaurant, tennis, dog_walking, hiking
+
+Cron Schedule: Every 15 minutes
+Cron Auth: X-Cron-Secret header
+
+═════════════════════════════════════════════════════════════════════════════════
+
+FILES SAVED LOCATION
+════════════════════════════════════════════════════════════════════════════════
+
+All files are in: /Users/luffy/Desktop/cosmo_app/
+
+  README_EVENT_CREATION.md          (6.4 KB) - Start here
+  PAIR_MATCHES_QUICK_REFERENCE.md   (13 KB)  - For lookups
+  EVENT_CREATION_DIAGRAM.txt        (25 KB)  - Visual flow
+  EVENT_CREATION_ANALYSIS.md        (18 KB)  - Deep dive
+  INDEX.txt                         (This file)
+
+═════════════════════════════════════════════════════════════════════════════════
+
+ABSOLUTE FILE PATHS FOR CODE REFERENCE
+════════════════════════════════════════════════════════════════════════════════
+
+/Users/luffy/Desktop/cosmo_app/cosmo-backend/src/
+
+Controllers:
+  /src/controllers/swipe.controller.ts (SwipeController.swipe())
+
+Services:
+  /src/services/pair-matching.service.ts (PairMatchingService)
+  /src/services/event-orchestration.service.ts (EventOrchestrationService)
+
+Routes:
+  /src/routes/cron.routes.ts (POST /cron/auto-organize-events)
+
+Utilities:
+  /src/utils/availability.ts (Overlap computation)
+  /src/utils/eventMapping.ts (Interest mapping)
+
+Configuration:
+  /src/config/firebase.ts (Collection definitions)
+  /src/config/events.config.ts (Event templates)
+
+Types:
+  /src/types/index.ts (All interfaces)
+
+═════════════════════════════════════════════════════════════════════════════════
+
+QUICK FACTS
+════════════════════════════════════════════════════════════════════════════════
+
+Collection: PAIR_MATCHES (Firestore)
+Fields: 17 (id, pairKey, userIds, status, queueStatus, etc.)
+Statuses: 5 (awaiting_availability, awaiting_event_type, queued, in_event, sidelined)
+
+Process: 4 stages
+  1. User swipe → Pair created
+  2. Queue processing (cron)
+  3. Event creation
+  4. Cascade updates
+
+Cron: Every 15 minutes
+Event Types: 6 (coffee, bar, restaurant, tennis, dog_walking, hiking)
+Minimum Availability: 2 date-time segments
+Minimum Users per Event: 2-3 pairs (4-6 people)
+
+═════════════════════════════════════════════════════════════════════════════════
+
+Updated: 2025-10-18
+Thoroughness: Very Thorough
+Status: Complete
+

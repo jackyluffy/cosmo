@@ -26,6 +26,13 @@ const upload = (0, multer_1.default)({
     },
 });
 // Validation schemas
+const availabilityEntrySchema = joi_1.default.object({
+    morning: joi_1.default.boolean().optional(),
+    afternoon: joi_1.default.boolean().optional(),
+    evening: joi_1.default.boolean().optional(),
+    night: joi_1.default.boolean().optional(),
+    blocked: joi_1.default.boolean().optional(),
+});
 const updateProfileSchema = joi_1.default.object({
     name: joi_1.default.string().min(2).max(50),
     age: joi_1.default.number().min(18).max(100),
@@ -40,6 +47,7 @@ const updateProfileSchema = joi_1.default.object({
     }),
     radius: joi_1.default.number().min(1).max(100),
     traits: joi_1.default.any(), // Allow traits object for personality traits
+    availability: joi_1.default.object().pattern(joi_1.default.string().min(1), availabilityEntrySchema).optional(),
 });
 const updateLocationSchema = joi_1.default.object({
     latitude: joi_1.default.number().min(-90).max(90).required(),

@@ -3,6 +3,7 @@ import { db, Collections } from '../config/firebase';
 import { ApiResponse, UpdateProfileRequest } from '../types';
 import { Timestamp, GeoPoint } from 'firebase-admin/firestore';
 import { StorageService } from '../services/storage.service';
+import { normalizeAvailabilityMap } from '../utils/availability';
 
 export class ProfileController {
   /**
@@ -16,7 +17,6 @@ export class ProfileController {
       // Convert GeoPoint to plain object for JSON serialization
       const profile = user.profile ? { ...user.profile } : undefined;
       if (profile?.location?._latitude !== undefined) {
-        console.log('[Get Profile] Converting GeoPoint to {lat, lng}');
         profile.location = {
           lat: profile.location._latitude,
           lng: profile.location._longitude,
@@ -51,8 +51,11 @@ export class ProfileController {
     try {
       const userId = req.userId!;
       const updates: UpdateProfileRequest = req.body;
+      const originalBody = (req as any)._originalBody || {};
 
-      console.log('[Profile Update] Received updates:', JSON.stringify(updates, null, 2));
+      if (updates.availability === undefined && originalBody?.availability) {
+        updates.availability = originalBody.availability;
+      }
 
       // Validate age if provided
       if (updates.age !== undefined) {
@@ -72,16 +75,25 @@ export class ProfileController {
       if (updates.height) profileUpdates['profile.height'] = updates.height;
       if (updates.gender) profileUpdates['profile.gender'] = updates.gender;
       if (updates.genderPreference) profileUpdates['profile.genderPreference'] = updates.genderPreference;
+      if (updates.ethnicity) {
+        // Validate ethnicity value
+        const validEthnicities = ['Asian', 'Black', 'Hispanic', 'White', 'Mixed', 'Other'];
+        if (validEthnicities.includes(updates.ethnicity)) {
+          profileUpdates['profile.ethnicity'] = updates.ethnicity;
+        }
+      }
       if (updates.bio) profileUpdates['profile.bio'] = updates.bio;
       if (updates.interests) profileUpdates['profile.interests'] = updates.interests;
       if (updates.traits) profileUpdates['profile.traits'] = updates.traits;
       if (updates.radius) profileUpdates['profile.radius'] = updates.radius;
       if (updates.photos) profileUpdates['profile.photos'] = updates.photos;
-      if (updates.availability) profileUpdates['profile.availability'] = updates.availability;
+      if (updates.availability !== undefined) {
+        const normalizedAvailability = normalizeAvailabilityMap(updates.availability);
+        profileUpdates['profile.availability'] = normalizedAvailability;
+        profileUpdates['profile.availabilityUpdatedAt'] = Timestamp.now();
+      }
       if (updates.location) {
-        console.log('[Profile Update] Creating GeoPoint from:', updates.location);
         profileUpdates['profile.location'] = new GeoPoint(updates.location.lat, updates.location.lng);
-        console.log('[Profile Update] GeoPoint created:', profileUpdates['profile.location']);
       }
       if (updates.verified !== undefined) {
         profileUpdates['profile.verified'] = updates.verified;
@@ -114,14 +126,11 @@ export class ProfileController {
 
       // Convert GeoPoint to plain object for JSON serialization
       if (updatedUser.profile?.location?._latitude !== undefined) {
-        console.log('[Profile Update] Converting GeoPoint to {lat, lng}');
         updatedUser.profile.location = {
           lat: updatedUser.profile.location._latitude,
           lng: updatedUser.profile.location._longitude,
         };
       }
-
-      console.log('[Profile Update] Returning profile with location:', updatedUser.profile?.location);
 
       return res.status(200).json({
         success: true,

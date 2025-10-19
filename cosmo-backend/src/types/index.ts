@@ -29,6 +29,7 @@ export interface UserProfile {
   height?: string; // e.g., "5'5\""
   gender: 'male' | 'female' | 'other';
   genderPreference: 'male' | 'female' | 'both';
+  ethnicity?: string; // e.g., "Asian", "Black", "Hispanic", "White", "Mixed", "Other"
   bio: string;
   lookingFor?: string;
   photos: string[];
@@ -326,6 +327,7 @@ export interface UpdateProfileRequest {
   height?: string;
   gender?: 'male' | 'female' | 'other';
   genderPreference?: 'male' | 'female' | 'both';
+  ethnicity?: string;
   bio?: string;
   lookingFor?: string;
   photos?: string[];

@@ -1,0 +1,466 @@
+╔════════════════════════════════════════════════════════════════════════════════════════════╗
+║                    COSMO EVENT CREATION FROM pair_matches FLOW                            ║
+╚════════════════════════════════════════════════════════════════════════════════════════════╝
+
+STAGE 1: PAIR MATCH CREATION (User Action)
+═══════════════════════════════════════════════════════════════════════════════════════════════
+
+    ┌─────────────────┐
+    │  User Swipes    │
+    │   (Like/Skip)   │
+    └────────┬────────┘
+             │
+             ├─→ Like Direction
+             │     │
+             │     └─→ Check Reverse Swipe
+             │           │
+             │           ├─ No Reverse → Record Swipe (File: swipe.controller.ts)
+             │           │
+             │           └─ Yes Reverse → MUTUAL MATCH DETECTED! ✓
+             │                 │
+             │                 └─→ Call: PairMatchingService.upsertPairMatch(userA, userB)
+             │
+             └─→ Skip Direction → Record Swipe (No Action)
+
+
+PAIR MATCH CREATION LOGIC (pair-matching.service.ts)
+────────────────────────────────────────────────────
+
+    upsertPairMatch(userA, userB)
+         │
+         ├─ Build pairKey: sort([userA.id, userB.id]).join(':')
+         │
+         ├─ Normalize Availability
+         │   ├─ Remove past dates (only future)
+         │   ├─ Coerce to ISO format (YYYY-MM-DD)
+         │   └─ Coerce boolean values
+         │
+         ├─ Compute Availability Overlap (availability.ts)
+         │   ├─ Find matching dates between both users
+         │   ├─ Find matching time segments (morning/afternoon/evening/night)
+         │   └─ Count total overlap segments
+         │
+         ├─ Get Shared Event Types (eventMapping.ts)
+         │   ├─ Interest → EventType mapping:
+         │   │   - Hiking → hiking
+         │   │   - Dog Walking → dog_walking
+         │   │   - Tennis → tennis
+         │   │   - Coffee Date → coffee
+         │   │   - Bars → bar
+         │   │   - Restaurant → restaurant
+         │   └─ Find common types between both users
+         │
+         └─ Determine Queue Status
+             │
+             ├─ If overlap < 2 segments
+             │   └─ queueStatus = 'awaiting_availability'
+             │
+             ├─ If overlap >= 2 BUT sharedEventTypes.length = 0
+             │   └─ queueStatus = 'awaiting_event_type'
+             │
+             └─ If overlap >= 2 AND sharedEventTypes.length > 0
+                 └─ queueStatus = 'queued' ✓ (READY FOR EVENT CREATION)
+
+
+PAIR_MATCHES DOCUMENT CREATED IN FIRESTORE
+───────────────────────────────────────────
+
+    {
+        "id": "auto-generated",
+        "pairKey": "userA:userB",
+        "userIds": ["userA", "userB"],
+        
+        "status": "active",
+        "queueStatus": "queued" | "awaiting_availability" | "awaiting_event_type",
+        
+        "sharedEventTypes": ["hiking", "coffee"],
+        "queueEventType": "hiking",
+        "suggestedEventType": "hiking",
+        
+        "availabilityOverlapCount": 3,
+        "availabilityOverlapSegments": [
+            { "date": "2025-10-20", "segments": ["morning", "evening"] },
+            { "date": "2025-10-21", "segments": ["afternoon"] }
+        ],
+        "hasSufficientAvailability": true,
+        
+        "pendingEventId": null,
+        
+        "createdAt": Timestamp,
+        "updatedAt": Timestamp,
+        "lastActivityAt": Timestamp
+    }
+
+
+═══════════════════════════════════════════════════════════════════════════════════════════════
+STAGE 2: SCHEDULED QUEUE PROCESSING (Cron Job)
+═══════════════════════════════════════════════════════════════════════════════════════════════
+
+    ┌─────────────────────────────────────────────┐
+    │  Google Cloud Scheduler (every 15 minutes)  │
+    │  POST /cron/auto-organize-events            │
+    │  Header: X-Cron-Secret: [CRON_SECRET]       │
+    └─────────────┬───────────────────────────────┘
+                  │
+                  └─→ EventOrchestrationService.processAllQueues()
+
+
+processAllQueues() LOGIC (event-orchestration.service.ts)
+──────────────────────────────────────────────────────────
+
+    for each EventType in ['coffee', 'bar', 'restaurant', 'tennis', 'dog_walking', 'hiking']:
+        │
+        └─→ processQueueForEventType(eventType)
+                │
+                ├─ QUERY: pair_matches where
+                │   ├─ queueStatus = 'queued'
+                │   ├─ queueEventType = eventType
+                │   └─ pendingEventId = null
+                │
+                ├─ Get Template for EventType
+                │   └─ Calculate: pairsRequired = Math.floor(template.groupSize / 2)
+                │       (e.g., groupSize 4 → need 2 pairs)
+                │
+                ├─ If queuedPairs.length < pairsRequired
+                │   └─ Return [] (not enough pairs yet)
+                │
+                ├─ Filter & Sort Eligible Pairs
+                │   ├─ Remove pairs already in events (pendingEventId != null)
+                │   └─ Sort by availabilityComputedAt (oldest first - FIFO)
+                │
+                └─ Create Events Loop
+                    │
+                    while (eligiblePairs.length >= pairsRequired):
+                    │
+                    ├─ Extract Next Batch
+                    │   └─ pairsForEvent = eligiblePairs.splice(0, pairsRequired)
+                    │
+                    ├─→ createPendingEventDocument(eventType, pairsForEvent)
+                    │     │
+                    │     └─ Create EVENTS document (see Stage 3)
+                    │
+                    ├─→ updatePairMatchesWithEvent(pairsForEvent, eventId)
+                    │     │
+                    │     ├─ For each pair:
+                    │     │   ├─ queueStatus → 'in_event'
+                    │     │   └─ pendingEventId → eventId
+                    │     │
+                    │     └─ Saves to PAIR_MATCHES collection
+                    │
+                    ├─→ assignPendingEventToUser() for all participants
+                    │     │
+                    │     └─ Updates USERS.pendingEvents array
+                    │
+                    └─ Record eventId in createdEventIds[]
+
+
+═══════════════════════════════════════════════════════════════════════════════════════════════
+STAGE 3: EVENT DOCUMENT CREATION
+═══════════════════════════════════════════════════════════════════════════════════════════════
+
+createPendingEventDocument(eventType, pairMatches)
+───────────────────────────────────────────────────
+
+    Step 1: Get Event Template
+            ├─ Load template for event type from config/events.config.ts
+            └─ Template includes: title, description, venue, groupSize, etc.
+
+    Step 2: Extract Unique Participants
+            ├─ Flatten all userIds from pair matches
+            └─ Remove duplicates using Set
+            Result: participantUserIds = [userId1, userId2, userId3, userId4, ...]
+
+    Step 3: Build Participant Statuses
+            └─ For each userId:
+               └─ status = 'pending_join'
+
+    Step 4: Aggregate Suggested Times
+            ├─ From all pair matches:
+            │   ├─ Collect availabilityOverlapSegments
+            │   └─ Group by date
+            ├─ Create suggestedTimes (up to 5 most relevant dates)
+            └─ Used for scheduling
+
+    Step 5: Build Venue Options
+            ├─ Get venues from config/events.config.ts
+            ├─ Select up to 3 venues for voting
+            └─ Create venueOptions with voting structure
+
+    Step 6: Create EVENTS Document
+            └─ Add to 'events' collection with structure:
+
+                {
+                    "id": "auto-generated",
+                    
+                    "title": "Coffee Date",
+                    "description": "Meet new people over coffee",
+                    "category": "restaurant",
+                    "eventType": "coffee",
+                    
+                    "date": Timestamp (7 days from now - placeholder),
+                    "location": {
+                        "name": "Coffee Venue",
+                        "address": "...",
+                        "coordinates": GeoPoint
+                    },
+                    "photos": [...],
+                    
+                    "organizer": {
+                        "id": "cosmo-system-organizer",
+                        "name": "Cosmo Events"
+                    },
+                    
+                    "groups": [],
+                    "maxGroupsCount": 1,
+                    "groupSize": 4,
+                    "pricePerPerson": 15,
+                    "ageRange": { "min": 21, "max": 60 },
+                    
+                    "status": "pending_join",
+                    "createdAt": Timestamp,
+                    "updatedAt": Timestamp,
+                    "autoOrganized": true,
+                    
+                    ┌──────────────────────────────────────────┐
+                    │ PAIR MATCH TRACKING (links back)         │
+                    ├──────────────────────────────────────────┤
+                    "pendingPairMatchIds": [
+                        "pairMatch1_id",
+                        "pairMatch2_id"
+                    ],
+                    "requiredPairCount": 2,
+                    
+                    ┌──────────────────────────────────────────┐
+                    │ PARTICIPANT TRACKING                     │
+                    ├──────────────────────────────────────────┤
+                    "participantUserIds": [
+                        "userId1", "userId2", "userId3", "userId4"
+                    ],
+                    "participantStatuses": {
+                        "userId1": "pending_join",
+                        "userId2": "pending_join",
+                        "userId3": "pending_join",
+                        "userId4": "pending_join"
+                    },
+                    
+                    ┌──────────────────────────────────────────┐
+                    │ VENUE VOTING SYSTEM                      │
+                    ├──────────────────────────────────────────┤
+                    "venueOptions": [
+                        {
+                            "id": "coffee-0-blue-bottle",
+                            "name": "Blue Bottle Coffee",
+                            "address": "...",
+                            "coordinates": GeoPoint,
+                            "photos": [...]
+                        },
+                        { ... },
+                        { ... }  // Up to 3 options
+                    ],
+                    "venueVoteTotals": {
+                        "coffee-0-blue-bottle": 0,
+                        "coffee-1-...": 0,
+                        "coffee-2-...": 0
+                    },
+                    "finalVenueOptionId": null,
+                    
+                    ┌──────────────────────────────────────────┐
+                    │ SCHEDULING & COORDINATION                │
+                    ├──────────────────────────────────────────┤
+                    "suggestedTimes": [
+                        { "date": "2025-10-20", "segments": ["morning", "evening"] },
+                        { "date": "2025-10-21", "segments": ["afternoon"] },
+                        ...
+                    ],
+                    "votesSubmittedCount": 0,
+                    
+                    ┌──────────────────────────────────────────┐
+                    │ COMMUNICATION & NOTIFICATIONS            │
+                    ├──────────────────────────────────────────┤
+                    "chatRoomId": null,
+                    "reminderSent": false,
+                    "reminderSentAt": null,
+                    "confirmationsReceived": 0
+                }
+
+
+═══════════════════════════════════════════════════════════════════════════════════════════════
+STAGE 4: CASCADE UPDATES
+═══════════════════════════════════════════════════════════════════════════════════════════════
+
+A. UPDATE pair_matches COLLECTION
+────────────────────────────────
+
+    For each pair in pairsForEvent:
+        Update document with:
+        ├─ queueStatus: 'in_event' (was 'queued')
+        ├─ pendingEventId: eventId (was null)
+        ├─ updatedAt: Timestamp.now()
+        └─ lastActivityAt: Timestamp.now()
+
+    Example:
+    ┌─────────────────────────────────────────┐
+    │ BEFORE:                                 │
+    │ queueStatus: 'queued'                   │
+    │ pendingEventId: null                    │
+    └─────────────────────────────────────────┘
+                    ↓
+    ┌─────────────────────────────────────────┐
+    │ AFTER:                                  │
+    │ queueStatus: 'in_event'                 │
+    │ pendingEventId: 'event123'              │
+    └─────────────────────────────────────────┘
+
+
+B. UPDATE users COLLECTION
+──────────────────────────
+
+    For each participant userId:
+        Run transaction to:
+        ├─ Read existing pendingEvents array
+        ├─ Create assignment:
+        │   {
+        │       eventId: eventId,
+        │       eventType: eventType,
+        │       status: 'pending_join',
+        │       assignedAt: Timestamp.now(),
+        │       updatedAt: Timestamp.now()
+        │   }
+        ├─ Add to pendingEvents array
+        ├─ Update pendingEventCount
+        └─ Write back to database
+
+    Example USERS document update:
+    ┌──────────────────────────────────────────────────────────┐
+    │ BEFORE:                                                  │
+    │ {                                                        │
+    │     "id": "userId1",                                     │
+    │     "pendingEvents": [],                                 │
+    │     "pendingEventCount": 0,                              │
+    │     ...                                                  │
+    │ }                                                        │
+    └──────────────────────────────────────────────────────────┘
+                            ↓
+    ┌──────────────────────────────────────────────────────────┐
+    │ AFTER:                                                   │
+    │ {                                                        │
+    │     "id": "userId1",                                     │
+    │     "pendingEvents": [                                   │
+    │         {                                                │
+    │             "eventId": "event123",                       │
+    │             "eventType": "coffee",                       │
+    │             "status": "pending_join",                    │
+    │             "assignedAt": Timestamp,                     │
+    │             "updatedAt": Timestamp                       │
+    │         }                                                │
+    │     ],                                                   │
+    │     "pendingEventCount": 1,                              │
+    │     ...                                                  │
+    │ }                                                        │
+    └──────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════════════════════
+COLLECTION RELATIONSHIPS (After Event Creation)
+═══════════════════════════════════════════════════════════════════════════════════════════════
+
+    ┌────────────┐
+    │   EVENTS   │
+    │ (event123) │◄────┬─────────────────────────────────────┐
+    └────────────┘     │                                     │
+         │             │                                     │
+         │ pendingPairMatchIds                               │
+         │ participantUserIds                           FROM PAIR_MATCHES
+         │                                              & USERS
+         │
+         ├─────────────────────────────┐
+         ▼                             ▼
+    ┌─────────────────┐         ┌──────────────────────┐
+    │  PAIR_MATCHES   │         │   USERS              │
+    │ (pair1, pair2)  │         │ (user1,user2,user3..)│
+    └─────────────────┘         └──────────────────────┘
+         │                             │
+         ├─ pendingEventId:            └─ pendingEvents: [{
+         │  "event123"                    eventId: "event123",
+         │                                eventType: "coffee"
+         ├─ queueStatus:               }]
+         │  "in_event"
+         │
+         └─ userIds: [pair1_user1, pair1_user2]
+
+
+═══════════════════════════════════════════════════════════════════════════════════════════════
+QUERY PATTERNS
+═══════════════════════════════════════════════════════════════════════════════════════════════
+
+1. GET QUEUED PAIRS FOR EVENT TYPE:
+   ────────────────────────────────
+   db.collection('pair_matches')
+       .where('queueStatus', '==', 'queued')
+       .where('queueEventType', '==', 'coffee')
+       .get()
+
+2. GET PAIRS FOR SPECIFIC USER:
+   ─────────────────────────────
+   db.collection('pair_matches')
+       .where('userIds', 'array-contains', userId)
+       .where('status', '==', 'active')
+       .get()
+
+3. GET USER'S PENDING EVENTS:
+   ──────────────────────────
+   Through users document: user.pendingEvents[]
+   Or: db.collection('events')
+       .where('participantUserIds', 'array-contains', userId)
+       .where('status', '==', 'pending_join')
+       .get()
+
+
+═══════════════════════════════════════════════════════════════════════════════════════════════
+FILE REFERENCES
+═══════════════════════════════════════════════════════════════════════════════════════════════
+
+CRITICAL FILES:
+
+├── swipe.controller.ts
+│   └─ SwipeController.swipe()
+│      └─ PairMatchingService.upsertPairMatch() call
+
+├── pair-matching.service.ts
+│   ├─ upsertPairMatch()
+│   ├─ getQueuedPairsForEventType()
+│   └─ getPairMatchesForUser()
+
+├── event-orchestration.service.ts
+│   ├─ processAllQueues()
+│   ├─ processQueueForEventType()
+│   ├─ createPendingEventDocument()
+│   └─ updatePairMatchesWithEvent()
+
+├── cron.routes.ts
+│   └─ POST /cron/auto-organize-events (Cron trigger)
+
+├── types/index.ts
+│   ├─ PairMatch interface
+│   ├─ Event interface
+│   └─ User interface
+
+├── config/firebase.ts
+│   ├─ Collections.PAIR_MATCHES
+│   ├─ Collections.EVENTS
+│   └─ Collections.USERS
+
+├── config/events.config.ts
+│   ├─ EVENT_TEMPLATES
+│   └─ Venue configurations
+
+├── utils/availability.ts
+│   ├─ normalizeAvailabilityMap()
+│   └─ computeAvailabilityOverlap()
+
+└── utils/eventMapping.ts
+    ├─ getEventTypesForInterests()
+    └─ getSharedEventTypes()
+
+
+═══════════════════════════════════════════════════════════════════════════════════════════════

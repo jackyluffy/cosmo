@@ -24,15 +24,6 @@ api.interceptors.request.use(
     config.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
     config.headers['Pragma'] = 'no-cache';
     config.headers['Expires'] = '0';
-    // Log all PUT requests to /api/v1/profile
-    if (config.method === 'put' && config.url?.includes('/api/v1/profile')) {
-      console.log('[API Interceptor] PUT /api/v1/profile request:', {
-        url: config.url,
-        data: config.data,
-        dataType: typeof config.data,
-        dataStringified: JSON.stringify(config.data),
-      });
-    }
     return config;
   },
   (error) => Promise.reject(error)
@@ -136,13 +127,6 @@ const realAPI = {
       api.put(`/api/v1/chat/conversations/${chatId}/read`, { messageIds }),
     deleteMessage: (chatId: string, messageId: string) =>
       api.delete(`/api/v1/chat/conversations/${chatId}/messages/${messageId}`),
-  },
-
-  // Chat system endpoints
-  chat: {
-    getConversations: () => api.get('/api/v1/chat/conversations'),
-    sendMessage: (conversationId: string, message: string) =>
-      api.post('/api/v1/chat/send', { conversationId, message }),
   },
 
   // Billing and subscription endpoints

@@ -251,6 +251,17 @@ export default function EventChatScreen() {
               <RefreshControl refreshing={Boolean(isLoading)} onRefresh={handleRefresh} />
             }
             contentContainerStyle={styles.messageList}
+            ListEmptyComponent={
+              !isLoading ? (
+                <View style={styles.emptyState}>
+                  <Ionicons name="chatbubbles-outline" size={64} color={Colors.lightGray} />
+                  <Text style={styles.emptyStateTitle}>No messages yet</Text>
+                  <Text style={styles.emptyStateText}>
+                    Be the first to say hello!
+                  </Text>
+                </View>
+              ) : null
+            }
           />
         )}
       </View>
@@ -340,10 +351,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: Spacing.xxl * 2,
+  },
+  emptyStateTitle: {
+    ...Typography.h3,
+    marginTop: Spacing.lg,
+    color: Colors.text,
+  },
+  emptyStateText: {
+    ...Typography.body,
+    color: Colors.textSecondary,
+    marginTop: Spacing.sm,
+    textAlign: 'center',
+  },
   messageList: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
     paddingBottom: Spacing.xxl,
+    flexGrow: 1,
   },
   messageRow: {
     flexDirection: 'row',

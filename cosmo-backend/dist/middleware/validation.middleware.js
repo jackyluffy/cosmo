@@ -4,6 +4,7 @@ exports.validateRequest = validateRequest;
 const logger_1 = require("../utils/logger");
 function validateRequest(schema, property = 'body') {
     return (req, res, next) => {
+        const originalValue = req[property];
         const { error, value } = schema.validate(req[property], {
             abortEarly: false,
             stripUnknown: true,
@@ -23,6 +24,12 @@ function validateRequest(schema, property = 'body') {
         }
         // Replace request property with validated value
         req[property] = value;
+        const originalKey = property === 'body'
+            ? '_originalBody'
+            : property === 'query'
+                ? '_originalQuery'
+                : '_originalParams';
+        req[originalKey] = originalValue;
         next();
     };
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,10 +20,10 @@ import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { swipeAPI } from '../../services/api';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
+import { useAuthStore } from '../../store/authStore';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 120;
-const PHOTO_HEIGHT = screenHeight * 0.8;
 
 // Map interests to emojis
 const getInterestEmoji = (interest: string): string => {
@@ -138,15 +138,35 @@ export default function SwipeScreen() {
   const [filters, setFilters] = useState<FilterOptions>({ ...DEFAULT_FILTERS });
   const [draftFilters, setDraftFilters] = useState<FilterOptions>({ ...DEFAULT_FILTERS });
   const [photoIndices, setPhotoIndices] = useState<Record<string, number>>({});
+  const [cardHeight, setCardHeight] = useState(screenHeight);
 
+  const { user } = useAuthStore();
   const insets = useSafeAreaInsets();
   const position = useRef(new Animated.ValueXY()).current;
   const isPhotoInteractingRef = useRef(false);
   const flatListRefs = useRef<Record<string, FlatList<string> | null>>({});
+  const photoHeight = Math.max(cardHeight, 1);
+
+  const interestReloadKey = useMemo(() => {
+    const interests = user?.profile?.interests;
+    if (!Array.isArray(interests) || interests.length === 0) {
+      return 'none';
+    }
+
+    return interests
+      .filter((interest): interest is string => typeof interest === 'string')
+      .map((interest) => interest.trim().toLowerCase())
+      .filter((interest) => interest.length > 0)
+      .sort()
+      .join('|');
+  }, [user?.profile?.interests]);
 
   useEffect(() => {
+    setCurrentIndex(0);
+    setPhotoIndices({});
+    setProfiles([]);
     loadProfiles();
-  }, [filters]);
+  }, [filters, interestReloadKey]);
 
   useEffect(() => {
     if (filterModalVisible) {
@@ -185,7 +205,7 @@ export default function SwipeScreen() {
     }
 
     const targetIndex = photoIndices[currentProfile.id] ?? 0;
-    const offset = targetIndex * PHOTO_HEIGHT;
+    const offset = targetIndex * photoHeight;
 
     requestAnimationFrame(() => {
       try {
@@ -194,10 +214,17 @@ export default function SwipeScreen() {
         console.warn('[SwipeScreen] Failed to reset photo position:', error);
       }
     });
-  }, [currentIndex, profiles]);
+  }, [currentIndex, profiles, photoHeight]);
 
   const loadProfiles = async () => {
     try {
+      if (interestReloadKey === 'none') {
+        setLoading(false);
+        setProfiles([]);
+        setPhotoIndices({});
+        return;
+      }
+
       setLoading(true);
       console.log('[SwipeScreen] Calling getDeck API...');
       const response = await swipeAPI.getDeck();
@@ -273,6 +300,11 @@ export default function SwipeScreen() {
   };
 
   const applyFilters = (profiles: Profile[]): Profile[] => {
+    const normalizedUserInterests = interestReloadKey === 'none'
+      ? []
+      : interestReloadKey.split('|').filter((interest) => interest.length > 0);
+    const userInterestSet = new Set(normalizedUserInterests);
+
     return profiles.filter(profile => {
       // Age filter
       if (filters.minAge && profile.age < filters.minAge) return false;
@@ -304,6 +336,19 @@ export default function SwipeScreen() {
       if (filters.datingIntention && filters.datingIntention.length > 0 && profile.datingIntention) {
         if (!filters.datingIntention.includes(profile.datingIntention)) return false;
       }
+
+      const candidateInterests = Array.isArray(profile.interests)
+        ? profile.interests
+            .map((interest) => (typeof interest === 'string' ? interest.trim().toLowerCase() : ''))
+            .filter((interest) => interest.length > 0)
+        : [];
+
+      const hasSharedInterest =
+        normalizedUserInterests.length === 0
+          ? true
+          : candidateInterests.some((interest) => userInterestSet.has(interest));
+
+      if (!hasSharedInterest) return false;
 
       return true;
     });
@@ -489,6 +534,7 @@ export default function SwipeScreen() {
         style={[
           styles.card,
           {
+            height: photoHeight,
             transform: isCurrentCard
               ? [
                   { translateX: position.x },
@@ -535,12 +581,12 @@ export default function SwipeScreen() {
           keyExtractor={(_, idx) => `${profile.id}-photo-${idx}`}
           initialScrollIndex={currentPhotoIndex}
           pagingEnabled
-          snapToInterval={PHOTO_HEIGHT}
+          snapToInterval={photoHeight}
           snapToAlignment="start"
           decelerationRate="fast"
           bounces={false}
           showsVerticalScrollIndicator={true}
-          style={styles.photoList}
+          style={[styles.photoList, { height: photoHeight }]}
           scrollEnabled={isCurrentCard}
           onScrollBeginDrag={() => {
             isPhotoInteractingRef.current = true;
@@ -555,20 +601,20 @@ export default function SwipeScreen() {
             isPhotoInteractingRef.current = false;
             if (!isCurrentCard) return;
             const offsetY = e.nativeEvent.contentOffset.y;
-            const index = Math.round(offsetY / PHOTO_HEIGHT);
+            const index = photoHeight > 0 ? Math.round(offsetY / photoHeight) : 0;
             setPhotoIndices((prev) => ({
               ...prev,
               [profile.id]: Math.min(Math.max(index, 0), photos.length - 1),
             }));
           }}
           getItemLayout={(_, idx) => ({
-            length: PHOTO_HEIGHT,
-            offset: PHOTO_HEIGHT * idx,
+            length: photoHeight,
+            offset: photoHeight * idx,
             index: idx,
           })}
           renderItem={({ item: photoUrl, index: photoIndex }) => (
-            <View style={styles.photoContainer}>
-              <Image source={{ uri: photoUrl }} style={styles.photo} resizeMode="cover" />
+            <View style={[styles.photoContainer, { height: photoHeight }]}>
+              <Image source={{ uri: photoUrl }} style={[styles.photo, { height: photoHeight }]} resizeMode="cover" />
               {isCurrentCard && (
                 <View style={styles.profileOverlay}>
                   <View style={styles.overlayContent}>
@@ -655,7 +701,15 @@ export default function SwipeScreen() {
       </TouchableOpacity>
 
       {/* Card Container - full screen */}
-      <View style={styles.cardContainer}>
+      <View
+        style={styles.cardContainer}
+        onLayout={(event) => {
+          const { height } = event.nativeEvent.layout;
+          if (height > 0 && Math.abs(height - cardHeight) > 1) {
+            setCardHeight(height);
+          }
+        }}
+      >
         {profiles.map((profile, index) => renderCard(profile, index))}
       </View>
 
@@ -910,13 +964,14 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    position: 'relative',
+    width: '100%',
   },
   card: {
     position: 'absolute',
+    top: 0,
+    left: 0,
     width: screenWidth,
-    height: PHOTO_HEIGHT,
     backgroundColor: Colors.white,
     shadowColor: Colors.black,
     shadowOffset: {
@@ -969,15 +1024,12 @@ const styles = StyleSheet.create({
   },
   photoList: {
     flex: 1,
-    height: PHOTO_HEIGHT,
   },
   photoContainer: {
     position: 'relative',
-    height: PHOTO_HEIGHT,
   },
   photo: {
     width: screenWidth,
-    height: PHOTO_HEIGHT,
   },
   profileOverlay: {
     position: 'absolute',

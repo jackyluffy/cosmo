@@ -11,6 +11,7 @@ import { createServer } from 'http';
 import { initializeApp } from './app';
 import { logger } from './utils/logger';
 import { gracefulShutdown } from './utils/shutdown';
+import { EventOrchestrationService } from './services/event-orchestration.service';
 
 // Debug: Log Twilio credentials to verify .env is loaded
 console.log('TWILIO_ACCOUNT_SID:', process.env.TWILIO_ACCOUNT_SID);
@@ -139,6 +140,43 @@ server.listen(PORT, '0.0.0.0', () => {
   logger.info(`🚀 Server running on port ${PORT}`);
   logger.info(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
   logger.info(`🔥 Firebase Project: ${process.env.PROJECT_ID || process.env.FIREBASE_PROJECT_ID}`);
+
+  const defaultIntervalMs = 1 * 60 * 1000; // 1 minute (changed from 15 minutes for faster testing)
+  const rawInterval = process.env.EVENT_QUEUE_POLL_INTERVAL_MS;
+  const parsedInterval = rawInterval ? Number(rawInterval) : defaultIntervalMs;
+  const intervalMs = Number.isFinite(parsedInterval) && parsedInterval > 0 ? parsedInterval : defaultIntervalMs;
+
+  if (rawInterval && parsedInterval !== intervalMs) {
+    logger.warn(
+      `[AutoOrganize] Invalid EVENT_QUEUE_POLL_INTERVAL_MS value "${rawInterval}". Falling back to ${intervalMs}ms.`
+    );
+  }
+
+  const autoOrganizeFlag = process.env.EVENT_QUEUE_AUTORUN;
+  const autoOrganizeEnabled =
+    (autoOrganizeFlag ? autoOrganizeFlag.toLowerCase() === 'true' : process.env.NODE_ENV === 'development');
+
+  if (autoOrganizeEnabled) {
+    logger.info(
+      `[AutoOrganize] Background event queue polling enabled. Interval: ${intervalMs}ms (${Math.round(
+        intervalMs / 1000
+      )}s).`
+    );
+
+    const runAutoOrganize = async () => {
+      try {
+        const createdByType = await EventOrchestrationService.processAllQueues();
+        logger.info('[AutoOrganize] Completed run', createdByType);
+      } catch (error: any) {
+        logger.error('[AutoOrganize] Failed to process event queues:', error);
+      }
+    };
+
+    runAutoOrganize();
+    setInterval(runAutoOrganize, intervalMs);
+  } else {
+    logger.info('[AutoOrganize] Background event queue polling disabled. Relying on external scheduler.');
+  }
 });
 
 // Handle graceful shutdown

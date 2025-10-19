@@ -104,7 +104,15 @@
       "Bash(gcloud firestore databases describe:*)",
       "Read(//Users/luffy/Desktop/group_dating/**)",
       "Bash(gcloud firestore indexes composite create:*)",
-      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key-production.json\" firebase deploy:*)"
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key-production.json\" firebase deploy:*)",
+      "Bash(export GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key-production.json\")",
+      "Bash(export GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key.json\")",
+      "Bash(unset GOOGLE_APPLICATION_CREDENTIALS)",
+      "Bash(gcloud secrets versions access:*)",
+      "Bash(gcloud scheduler jobs list:*)",
+      "Bash(python3:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key-production.json\" npx ts-node:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key.json\" npx ts-node:*)"
     ],
     "deny": [],
     "ask": []

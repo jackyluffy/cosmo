@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,11 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  Dimensions,
+  FlatList,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format, addDays } from 'date-fns';
@@ -67,14 +72,23 @@ const safeDate = (value?: string) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const getVenueImage = (event: AssignmentView['event'], option?: EventVenueOption) => {
+const getVenuePhotos = (event: AssignmentView['event'], option?: EventVenueOption): string[] => {
+  const photos: string[] = [];
   if (option?.photos && option.photos.length > 0) {
-    return option.photos[0];
+    photos.push(...option.photos);
+  } else if (event.photos && event.photos.length > 0) {
+    photos.push(...event.photos);
   }
-  if (event.photos && event.photos.length > 0) {
-    return event.photos[0];
+
+  if (photos.length === 0) {
+    photos.push(VENUE_PLACEHOLDER);
   }
-  return VENUE_PLACEHOLDER;
+
+  return photos;
+};
+
+const getVenueImage = (event: AssignmentView['event'], option?: EventVenueOption) => {
+  return getVenuePhotos(event, option)[0];
 };
 
 export default function EventsScreen({ navigation }: any) {
@@ -98,8 +112,13 @@ export default function EventsScreen({ navigation }: any) {
 
   const [availabilityModalVisible, setAvailabilityModalVisible] = useState(false);
   const [availabilityDraft, setAvailabilityDraft] = useState<Record<string, AvailabilityEntry>>({});
-  const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set([format(new Date(), 'yyyy-MM-dd')]));
   const [savingAvailability, setSavingAvailability] = useState(false);
+  const [collapsedEvents, setCollapsedEvents] = useState<Record<string, boolean>>({});
+
+  const [photoGalleryVisible, setPhotoGalleryVisible] = useState(false);
+  const [photoGalleryData, setPhotoGalleryData] = useState<{ photos: string[]; initialIndex: number; venueName: string }>({ photos: [], initialIndex: 0, venueName: '' });
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
 
   useEffect(() => {
     fetchAssignments().catch((error) => {
@@ -149,45 +168,68 @@ export default function EventsScreen({ navigation }: any) {
     [availabilityDraft]
   );
 
-  const handleToggleSegment = (segment: keyof Omit<AvailabilityEntry, 'blocked'>) => {
-    setAvailabilityDraft((prev) => {
-      const current = ensureDateEntry(selectedDate);
-      const updated =
-        current.blocked && !current[segment]
-          ? { ...current, [segment]: true, blocked: false }
-          : { ...current, [segment]: !current[segment] };
-
+  // Get the merged state for all selected dates
+  const getSelectedDatesState = useCallback((): AvailabilityEntry => {
+    const selectedDatesArray = Array.from(selectedDates);
+    if (selectedDatesArray.length === 0) {
       return {
-        ...prev,
-        [selectedDate]: updated,
-      };
-    });
-  };
-
-  const handleBlockDay = () => {
-    setAvailabilityDraft((prev) => ({
-      ...prev,
-      [selectedDate]: {
-        morning: false,
-        afternoon: false,
-        evening: false,
-        night: false,
-        blocked: true,
-      },
-    }));
-  };
-
-  const handleSetAllAvailable = () => {
-    setAvailabilityDraft((prev) => ({
-      ...prev,
-      [selectedDate]: {
         morning: true,
         afternoon: true,
         evening: true,
         night: true,
         blocked: false,
-      },
-    }));
+      };
+    }
+
+    // Return state of first selected date (all will be set to same value)
+    return ensureDateEntry(selectedDatesArray[0]);
+  }, [selectedDates, ensureDateEntry]);
+
+  const handleToggleSegment = (segment: keyof Omit<AvailabilityEntry, 'blocked'>) => {
+    setAvailabilityDraft((prev) => {
+      const newDraft = { ...prev };
+      selectedDates.forEach((dateKey) => {
+        const current = ensureDateEntry(dateKey);
+        const updated =
+          current.blocked && !current[segment]
+            ? { ...current, [segment]: true, blocked: false }
+            : { ...current, [segment]: !current[segment] };
+        newDraft[dateKey] = updated;
+      });
+      return newDraft;
+    });
+  };
+
+  const handleBlockDay = () => {
+    setAvailabilityDraft((prev) => {
+      const newDraft = { ...prev };
+      selectedDates.forEach((dateKey) => {
+        newDraft[dateKey] = {
+          morning: false,
+          afternoon: false,
+          evening: false,
+          night: false,
+          blocked: true,
+        };
+      });
+      return newDraft;
+    });
+  };
+
+  const handleSetAllAvailable = () => {
+    setAvailabilityDraft((prev) => {
+      const newDraft = { ...prev };
+      selectedDates.forEach((dateKey) => {
+        newDraft[dateKey] = {
+          morning: true,
+          afternoon: true,
+          evening: true,
+          night: true,
+          blocked: false,
+        };
+      });
+      return newDraft;
+    });
   };
 
   const handleOpenAvailability = () => {
@@ -205,16 +247,71 @@ export default function EventsScreen({ navigation }: any) {
       ])
     );
     setAvailabilityDraft(cloned);
-    setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
+    setSelectedDates(new Set([format(new Date(), 'yyyy-MM-dd')]));
     setAvailabilityModalVisible(true);
+  };
+
+  const handleSelectDate = (dateKey: string) => {
+    setSelectedDates((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(dateKey)) {
+        newSet.delete(dateKey);
+        // Keep at least one date selected
+        if (newSet.size === 0) {
+          newSet.add(dateKey);
+        }
+      } else {
+        newSet.add(dateKey);
+      }
+      return newSet;
+    });
+  };
+
+  const handleQuickSelect = (type: 'weekdays' | 'weekend' | 'all' | 'clear') => {
+    if (type === 'clear') {
+      setSelectedDates(new Set([format(new Date(), 'yyyy-MM-dd')]));
+      return;
+    }
+
+    const newSet = new Set<string>();
+    upcomingDates.forEach((dateInfo) => {
+      // Parse date from YYYY-MM-DD format
+      const [year, month, day] = dateInfo.key.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+      const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+
+      if (type === 'all') {
+        newSet.add(dateInfo.key);
+      } else if (type === 'weekdays' && dayOfWeek >= 1 && dayOfWeek <= 5) {
+        // Monday (1) through Friday (5)
+        newSet.add(dateInfo.key);
+      } else if (type === 'weekend' && (dayOfWeek === 0 || dayOfWeek === 6)) {
+        // Sunday (0) and Saturday (6)
+        newSet.add(dateInfo.key);
+      }
+    });
+
+    if (newSet.size > 0) {
+      setSelectedDates(newSet);
+    }
   };
 
   const handleSaveAvailability = async () => {
     try {
       setSavingAvailability(true);
-      await updateProfile({ availability: availabilityDraft });
+
+      // Ensure all selected dates are included in the draft
+      const finalDraft = { ...availabilityDraft };
+      selectedDates.forEach((dateKey) => {
+        if (!finalDraft[dateKey]) {
+          finalDraft[dateKey] = ensureDateEntry(dateKey);
+        }
+      });
+
+      await updateProfile({ availability: finalDraft });
       await loadUser();
       setAvailabilityModalVisible(false);
+      Alert.alert('Success', 'Availability saved!');
     } catch (error) {
       console.error('[EventsScreen] Failed to save availability:', error);
       Alert.alert('Error', 'Unable to save availability. Please try again.');
@@ -325,6 +422,31 @@ export default function EventsScreen({ navigation }: any) {
     navigation.navigate('Subscription', { origin: 'events' });
   };
 
+  const toggleEventCollapsed = (eventId: string) => {
+    setCollapsedEvents((prev) => ({
+      ...prev,
+      [eventId]: !prev[eventId],
+    }));
+  };
+
+  const handleOpenPhotoGallery = (photos: string[], initialIndex: number, venueName: string) => {
+    setPhotoGalleryData({ photos, initialIndex, venueName });
+    setCurrentPhotoIndex(initialIndex);
+    setPhotoGalleryVisible(true);
+  };
+
+  const handleClosePhotoGallery = () => {
+    setPhotoGalleryVisible(false);
+  };
+
+  const handleOpenMaps = (address: string) => {
+    const encodedAddress = encodeURIComponent(address);
+    const url = `https://maps.google.com/?q=${encodedAddress}`;
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Error', 'Unable to open maps');
+    });
+  };
+
   const renderSuggestedTimes = (times?: { date: string; segments: string[] }[]) => {
     if (!times || times.length === 0) return null;
     return (
@@ -350,12 +472,16 @@ export default function EventsScreen({ navigation }: any) {
     option: EventVenueOption,
     isJoined: boolean,
     finalVenueOptionId?: string | null,
-    voteTotals?: Record<string, number>
+    voteTotals?: Record<string, number>,
+    allVotesIn?: boolean
   ) => {
     const selectedVenueId = selectedVenues[event.id];
     const isSelected = selectedVenueId === option.id;
     const isFinal = finalVenueOptionId === option.id;
     const voteCount = voteTotals?.[option.id] ?? 0;
+    const hasFinalVenue = Boolean(finalVenueOptionId);
+    const venuePhotos = getVenuePhotos(event, option);
+    const hasMultiplePhotos = venuePhotos.length > 1;
 
     return (
       <TouchableOpacity
@@ -365,21 +491,34 @@ export default function EventsScreen({ navigation }: any) {
           isSelected && styles.venueOptionSelected,
           isFinal && styles.venueOptionFinal,
         ]}
-        onPress={() => handleSelectVenue(event.id, option.id)}
+        onPress={() => !hasFinalVenue && handleSelectVenue(event.id, option.id)}
+        disabled={hasFinalVenue}
         activeOpacity={0.9}
       >
-        <View style={styles.venueImageWrapper}>
+        <TouchableOpacity
+          style={styles.venueImageWrapper}
+          onPress={() => handleOpenPhotoGallery(venuePhotos, 0, option.name)}
+          activeOpacity={0.9}
+        >
           <Image
             source={{ uri: getVenueImage(event, option) }}
             style={styles.venueImage}
           />
           <View style={styles.venueOverlay}>
             <Text style={styles.venueName}>{option.name}</Text>
-            <Text style={styles.venueAddress} numberOfLines={1}>
-              {option.address}
-            </Text>
+            <TouchableOpacity onPress={() => handleOpenMaps(option.address)} activeOpacity={0.7}>
+              <Text style={styles.venueAddress} numberOfLines={1}>
+                📍 {option.address}
+              </Text>
+            </TouchableOpacity>
           </View>
-        </View>
+          {hasMultiplePhotos && (
+            <View style={styles.photoIndicator}>
+              <Ionicons name="images" size={16} color={Colors.white} />
+              <Text style={styles.photoIndicatorText}>{venuePhotos.length}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
         <View style={styles.venueMetaRow}>
           {option.description ? (
@@ -418,12 +557,6 @@ export default function EventsScreen({ navigation }: any) {
                 : 'Tap to choose'}
             </Text>
           </View>
-          {(isJoined || isFinal || voteCount > 0) && (
-            <View style={styles.voteCountBadge}>
-              <Ionicons name="people-outline" size={14} color={Colors.primary} />
-              <Text style={styles.voteCountText}>{voteCount}</Text>
-            </View>
-          )}
         </View>
       </TouchableOpacity>
     );
@@ -477,38 +610,59 @@ export default function EventsScreen({ navigation }: any) {
       event.confirmationsReceived ?? activeStatuses.filter((status) => status === 'confirmed').length;
     const activeCount = activeStatuses.length;
 
+    // Calculate if all participants have voted
+    const voteTotals = event.venueVoteTotals || {};
+    const totalVotes = Object.values(voteTotals).reduce((sum, count) => sum + count, 0);
+    const allVotesIn = isJoined && totalVotes >= activeCount && activeCount > 0;
+
+    const isCollapsed = collapsedEvents[event.id];
+
     return (
       <View key={event.id} style={styles.eventCard}>
         <View style={styles.cardHeader}>
           <View style={styles.cardHeaderText}>
             <Text style={styles.cardTitle}>{event.title}</Text>
             <Text style={styles.cardSubtitle}>
-              {eventTypeLabel} • {event.organizer?.name || 'Cosmo Events'}
+              {eventTypeLabel}
             </Text>
           </View>
-          <View style={badgeStyle}>
-            <Text style={badgeTextStyle}>{badgeLabel}</Text>
+          <View style={styles.cardHeaderRight}>
+            <View style={badgeStyle}>
+              <Text style={badgeTextStyle}>{badgeLabel}</Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => toggleEventCollapsed(event.id)}
+              style={styles.collapseButton}
+            >
+              <Ionicons
+                name={isCollapsed ? 'chevron-down' : 'chevron-up'}
+                size={24}
+                color={Colors.text}
+              />
+            </TouchableOpacity>
           </View>
         </View>
 
-        <View style={styles.cardInfo}>
-          <View style={styles.infoRow}>
-            <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
-            <Text style={styles.infoText}>
-              {humanDate}
-              {humanTime ? ` at ${humanTime}` : ''}
-            </Text>
-          </View>
+        {!isCollapsed && (
+          <>
+            <View style={styles.cardInfo}>
+              <View style={styles.infoRow}>
+                <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
+                <Text style={styles.infoText}>
+                  {humanDate}
+                  {humanTime ? ` at ${humanTime}` : ''}
+                </Text>
+              </View>
 
-          <View style={styles.infoRow}>
-            <Ionicons name="location-outline" size={18} color={Colors.textSecondary} />
-            <Text style={styles.infoText} numberOfLines={1}>
-              {event.location?.name}
-            </Text>
-          </View>
-        </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="location-outline" size={18} color={Colors.textSecondary} />
+                <Text style={styles.infoText} numberOfLines={1}>
+                  {event.location?.name}
+                </Text>
+              </View>
+            </View>
 
-        {renderSuggestedTimes(event.suggestedTimes)}
+            {renderSuggestedTimes(event.suggestedTimes)}
 
         {activeCount > 0 && (
           <View style={styles.confirmationMeta}>
@@ -519,10 +673,14 @@ export default function EventsScreen({ navigation }: any) {
           </View>
         )}
 
-        <Text style={styles.sectionLabel}>Vote on the meetup spot</Text>
-        <Text style={styles.sectionHelper}>
-          Pick the venue that works best for you. Once everyone joins, the most voted option wins.
-        </Text>
+        {!hasFinalVenue && (
+          <>
+            <Text style={styles.sectionLabel}>Vote on the meetup spot</Text>
+            <Text style={styles.sectionHelper}>
+              Pick the venue that works best for you. Once everyone joins, the most voted option wins.
+            </Text>
+          </>
+        )}
 
         {venueOptions.length === 0 ? (
           <View style={styles.emptyVenues}>
@@ -531,8 +689,8 @@ export default function EventsScreen({ navigation }: any) {
             </Text>
           </View>
         ) : (
-          venueOptions.map((option) =>
-            renderVenueOption(event, option, isJoined, event.finalVenueOptionId, event.venueVoteTotals)
+          (hasFinalVenue ? venueOptions.filter(opt => opt.id === event.finalVenueOptionId) : venueOptions).map((option) =>
+            renderVenueOption(event, option, isJoined, event.finalVenueOptionId, event.venueVoteTotals, allVotesIn)
           )
         )}
 
@@ -541,8 +699,9 @@ export default function EventsScreen({ navigation }: any) {
             <Ionicons name="star" size={16} color={Colors.primary} />
             <Text style={styles.finalVenueText}>
               Final venue: {
-                venueOptions.find((opt) => opt.id === event.finalVenueOptionId)?.name ||
-                'TBA'
+                allVotesIn
+                  ? (venueOptions.find((opt) => opt.id === event.finalVenueOptionId)?.name || 'TBA')
+                  : 'Pending'
               }
             </Text>
           </View>
@@ -569,7 +728,7 @@ export default function EventsScreen({ navigation }: any) {
               {joinDisabled ? (
                 <ActivityIndicator color={Colors.white} />
               ) : (
-                <Text style={styles.primaryButtonText}>Join & Vote</Text>
+                <Text style={styles.primaryButtonText}>Vote & Join</Text>
               )}
             </TouchableOpacity>
           )
@@ -592,13 +751,21 @@ export default function EventsScreen({ navigation }: any) {
         )}
 
         {hasFinalVenue && isJoined && event.chatRoomId && (
-          <TouchableOpacity
-            style={[styles.secondaryButton, styles.chatButton]}
-            onPress={() => handleOpenChat(event.chatRoomId!, event.title)}
-          >
-            <Ionicons name="chatbubbles-outline" size={18} color={Colors.primary} />
-            <Text style={styles.chatButtonText}>Open Group Chat</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.chatButton, !allVotesIn && styles.disabledButton]}
+              onPress={() => allVotesIn && handleOpenChat(event.chatRoomId!, event.title)}
+              disabled={!allVotesIn}
+            >
+              <Ionicons name="chatbubbles-outline" size={18} color={allVotesIn ? Colors.primary : Colors.textSecondary} />
+              <Text style={[styles.chatButtonText, !allVotesIn && styles.chatButtonTextDisabled]}>Open Group Chat</Text>
+            </TouchableOpacity>
+            {!allVotesIn && (
+              <Text style={styles.chatHelperText}>
+                Chat opens once everyone has voted
+              </Text>
+            )}
+          </>
         )}
 
         {showReminderActions && (
@@ -627,6 +794,8 @@ export default function EventsScreen({ navigation }: any) {
               )}
             </TouchableOpacity>
           </View>
+        )}
+          </>
         )}
       </View>
     );
@@ -709,15 +878,39 @@ export default function EventsScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
 
+            <View style={styles.quickSelectRow}>
+              <TouchableOpacity style={styles.quickSelectButton} onPress={() => handleQuickSelect('weekdays')}>
+                <Text style={styles.quickSelectText}>Weekdays</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickSelectButton} onPress={() => handleQuickSelect('weekend')}>
+                <Text style={styles.quickSelectText}>Weekend</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickSelectButton} onPress={() => handleQuickSelect('all')}>
+                <Text style={styles.quickSelectText}>All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickSelectButton} onPress={() => handleQuickSelect('clear')}>
+                <Text style={styles.quickSelectText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.selectionCount}>
+              {selectedDates.size} {selectedDates.size === 1 ? 'day' : 'days'} selected
+            </Text>
+
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.calendarScroll}>
               {upcomingDates.map((date) => {
-                const isSelected = selectedDate === date.key;
+                const isSelected = selectedDates.has(date.key);
                 return (
                   <TouchableOpacity
                     key={date.key}
                     style={[styles.calendarChip, isSelected && styles.calendarChipSelected]}
-                    onPress={() => setSelectedDate(date.key)}
+                    onPress={() => handleSelectDate(date.key)}
                   >
+                    {isSelected && (
+                      <View style={styles.checkmarkIcon}>
+                        <Ionicons name="checkmark" size={14} color={Colors.white} />
+                      </View>
+                    )}
                     <Text
                       style={[
                         styles.calendarChipLabel,
@@ -739,9 +932,9 @@ export default function EventsScreen({ navigation }: any) {
               })}
             </ScrollView>
 
-            <Text style={styles.segmentTitle}>Select the times you’re available</Text>
+            <Text style={styles.segmentTitle}>Apply to all selected days</Text>
             {(['morning', 'afternoon', 'evening', 'night'] as const).map((segment) => {
-              const state = ensureDateEntry(selectedDate);
+              const state = getSelectedDatesState();
               const isActive = state[segment];
               return (
                 <TouchableOpacity
@@ -786,6 +979,52 @@ export default function EventsScreen({ navigation }: any) {
 
             <Text style={styles.modalFooterNote}>
               Any time not blocked will be used to match you with events that fit your schedule.
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={photoGalleryVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleClosePhotoGallery}
+      >
+        <View style={styles.photoGalleryOverlay}>
+          <View style={styles.photoGalleryHeader}>
+            <Text style={styles.photoGalleryTitle}>{photoGalleryData.venueName}</Text>
+            <TouchableOpacity onPress={handleClosePhotoGallery} style={styles.photoGalleryCloseButton}>
+              <Ionicons name="close" size={28} color={Colors.white} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+              const offsetX = event.nativeEvent.contentOffset.x;
+              const width = Dimensions.get('window').width;
+              const index = Math.round(offsetX / width);
+              setCurrentPhotoIndex(index);
+            }}
+            scrollEventThrottle={16}
+            contentContainerStyle={styles.photoGalleryContent}
+          >
+            {photoGalleryData.photos.map((photo, index) => (
+              <View key={index} style={styles.photoGalleryImageContainer}>
+                <Image
+                  source={{ uri: photo }}
+                  style={styles.photoGalleryImage}
+                  resizeMode="contain"
+                />
+              </View>
+            ))}
+          </ScrollView>
+
+          <View style={styles.photoGalleryFooter}>
+            <Text style={styles.photoGalleryCounter}>
+              {currentPhotoIndex + 1} / {photoGalleryData.photos.length}
             </Text>
           </View>
         </View>
@@ -908,6 +1147,14 @@ const styles = StyleSheet.create({
   cardHeaderText: {
     flex: 1,
     paddingRight: Spacing.sm,
+  },
+  cardHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  collapseButton: {
+    padding: Spacing.xs,
   },
   cardTitle: {
     ...Typography.h3,
@@ -1161,6 +1408,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: Spacing.xs,
   },
+  chatButtonTextDisabled: {
+    color: Colors.textSecondary,
+  },
+  chatHelperText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+    marginHorizontal: Spacing.lg,
+  },
   subscribeButton: {
     marginHorizontal: Spacing.lg,
     marginTop: Spacing.md,
@@ -1232,6 +1489,30 @@ const styles = StyleSheet.create({
   modalTitle: {
     ...Typography.h3,
   },
+  quickSelectRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  quickSelectButton: {
+    flex: 1,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    backgroundColor: Colors.lightGray,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+  },
+  quickSelectText: {
+    ...Typography.caption,
+    color: Colors.text,
+    fontWeight: '500',
+  },
+  selectionCount: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+    textAlign: 'center',
+  },
   calendarScroll: {
     marginBottom: Spacing.lg,
   },
@@ -1242,9 +1523,21 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightGray,
     marginRight: Spacing.sm,
     alignItems: 'center',
+    position: 'relative',
   },
   calendarChipSelected: {
     backgroundColor: Colors.primary,
+  },
+  checkmarkIcon: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: BorderRadius.round,
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   calendarChipLabel: {
     ...Typography.caption,
@@ -1307,5 +1600,64 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     marginTop: Spacing.lg,
+  },
+  photoIndicator: {
+    position: 'absolute',
+    top: Spacing.sm,
+    right: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.round,
+    gap: 4,
+  },
+  photoIndicatorText: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  photoGalleryOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+  },
+  photoGalleryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.xxl + 10,
+    paddingBottom: Spacing.md,
+  },
+  photoGalleryTitle: {
+    ...Typography.h3,
+    color: Colors.white,
+    flex: 1,
+  },
+  photoGalleryCloseButton: {
+    padding: Spacing.xs,
+  },
+  photoGalleryContent: {
+    flexGrow: 1,
+  },
+  photoGalleryImageContainer: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height - 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoGalleryImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoGalleryFooter: {
+    paddingVertical: Spacing.lg,
+    alignItems: 'center',
+  },
+  photoGalleryCounter: {
+    ...Typography.body,
+    color: Colors.white,
+    fontWeight: '600',
   },
 });
