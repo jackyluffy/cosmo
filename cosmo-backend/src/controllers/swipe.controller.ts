@@ -3,6 +3,7 @@ import { db, Collections } from '../config/firebase';
 import { ApiResponse, PairMatch, User } from '../types';
 import { Timestamp } from 'firebase-admin/firestore';
 import { PairMatchingService } from '../services/pair-matching.service';
+import { NotificationService } from '../services/notification.service';
 
 export class SwipeController {
   /**
@@ -172,6 +173,9 @@ export class SwipeController {
         } as ApiResponse);
       }
 
+      let missedPotential = false;
+      let missedLikerName: string | undefined;
+
       // Record the swipe
       await db.collection(Collections.SWIPES).add({
         userId,
@@ -179,6 +183,39 @@ export class SwipeController {
         direction,
         createdAt: Timestamp.now(),
       });
+
+      if (direction === 'like') {
+        try {
+          const likerName = req.user?.profile?.name;
+          await NotificationService.sendIncomingLike(targetId, likerName);
+        } catch (notifyError) {
+          console.error('Failed to send incoming like notification:', notifyError);
+        }
+      }
+
+      if (direction === 'skip') {
+        const incomingLike = await db
+          .collection(Collections.SWIPES)
+          .where('userId', '==', targetId)
+          .where('targetId', '==', userId)
+          .where('direction', '==', 'like')
+          .limit(1)
+          .get();
+
+        if (!incomingLike.empty) {
+          const likeDoc = incomingLike.docs[0];
+          await likeDoc.ref.set(
+            {
+              dismissedByTarget: true,
+              dismissedAt: Timestamp.now(),
+            },
+            { merge: true }
+          );
+          missedPotential = true;
+          const likerData = targetDoc.data() as User;
+          missedLikerName = likerData?.profile?.name;
+        }
+      }
 
       // Check for match if it's a like
       let isMatch = false;
@@ -195,6 +232,18 @@ export class SwipeController {
         if (!reverseSwipe.empty) {
           // It's a match!
           isMatch = true;
+          try {
+            const reverseDoc = reverseSwipe.docs[0];
+            await reverseDoc.ref.set(
+              {
+                matched: true,
+                matchedAt: Timestamp.now(),
+              },
+              { merge: true }
+            );
+          } catch (matchUpdateError) {
+            console.error('Failed to flag reverse swipe as matched:', matchUpdateError);
+          }
 
           const currentUser = req.user as User;
           const targetData = targetDoc.data() as User;
@@ -212,6 +261,8 @@ export class SwipeController {
           targetId,
           direction,
           pairMatch,
+          missedPotential,
+          missedLikerName,
         },
         message: isMatch ? "It's a match!" : 'Swipe recorded',
       } as ApiResponse);
@@ -220,6 +271,60 @@ export class SwipeController {
       return res.status(500).json({
         success: false,
         error: 'Failed to record swipe',
+      } as ApiResponse);
+    }
+  }
+
+  /**
+   * Get summary information about likes received by the current user
+   * GET /swipe/likes/summary
+   */
+  static async getLikeSummary(req: Request, res: Response) {
+    try {
+      const userId = req.userId!;
+
+      const likesSnapshot = await db
+        .collection(Collections.SWIPES)
+        .where('targetId', '==', userId)
+        .where('direction', '==', 'like')
+        .get();
+
+      const likerIds = new Set<string>();
+      let likesLast24h = 0;
+      const nowMs = Date.now();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+
+      likesSnapshot.docs.forEach((doc) => {
+        const data = doc.data() as any;
+        if (data?.dismissedByTarget || data?.matched) {
+          return;
+        }
+
+        if (data?.userId) {
+          likerIds.add(String(data.userId));
+        }
+
+        const createdAt = data?.createdAt;
+        if (createdAt?.toDate) {
+          const diffMs = nowMs - createdAt.toDate().getTime();
+          if (diffMs <= oneDayMs) {
+            likesLast24h += 1;
+          }
+        }
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          totalLikes: likerIds.size,
+          likesLast24h,
+        },
+      } as ApiResponse);
+    } catch (error: any) {
+      console.error('getLikeSummary error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to load like summary',
       } as ApiResponse);
     }
   }

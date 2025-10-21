@@ -112,7 +112,18 @@
       "Bash(gcloud scheduler jobs list:*)",
       "Bash(python3:*)",
       "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key-production.json\" npx ts-node:*)",
-      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key.json\" npx ts-node:*)"
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key.json\" npx ts-node:*)",
+      "Bash(gcloud firestore indexes composite list:*)",
+      "Bash(gcloud secrets create:*)",
+      "Bash(gcloud scheduler jobs create:*)",
+      "Bash(gcloud scheduler jobs update:*)",
+      "Bash(https://cosmo-backend-691853413697.us-west1.run.app/api/v1/cron/cleanup-pair-matches)",
+      "Bash(timeout 30 curl:*)",
+      "Bash(https://cosmo-backend-691853413697.us-west1.run.app/cron/cleanup-pair-matches)",
+      "Bash(https://cosmo-backend-691853413697.us-west1.run.app/api/v1/cron/auto-organize-events)",
+      "Bash(https://cosmo-backend-691853413697.us-west1.run.app/api/v1/cron/cleanup-user-pending-events)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"/Users/luffy/Desktop/cosmo_app/cosmo-backend/cosmo-firebase-key-backup.json\" npx ts-node:*)",
+      "Bash(gcloud scheduler jobs describe:*)"
     ],
     "deny": [],
     "ask": []

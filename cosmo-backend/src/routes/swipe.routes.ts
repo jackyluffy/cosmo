@@ -13,6 +13,8 @@ const swipeSchema = Joi.object({
 // Routes
 router.get('/deck', SwipeController.getDeck);
 
+router.get('/likes/summary', SwipeController.getLikeSummary);
+
 router.post(
   '/:targetId',
   validateRequest(swipeSchema),

@@ -20,6 +20,7 @@ export class GroupChatService {
     finalVenue?: EventVenueOption
   ): Promise<string> {
     const now = Timestamp.now();
+    const uniqueParticipantIds = Array.from(new Set(participantIds.filter(Boolean)));
     const venueSummary: ChatVenueSummary | null = finalVenue
       ? {
           id: finalVenue.id,
@@ -40,7 +41,7 @@ export class GroupChatService {
           eventId: event.id,
           title: event.title,
           eventType: event.eventType || null,
-          participantIds,
+          participantIds: uniqueParticipantIds,
           venue: venueSummary,
           suggestedTimes: event.suggestedTimes || [],
           updatedAt: now,
@@ -54,7 +55,7 @@ export class GroupChatService {
       eventId: event.id,
       title: event.title,
       eventType: event.eventType || null,
-      participantIds,
+      participantIds: uniqueParticipantIds,
       venue: venueSummary,
       suggestedTimes: event.suggestedTimes || [],
       createdAt: now,

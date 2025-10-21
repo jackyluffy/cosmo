@@ -1,6 +1,7 @@
 import { GeoPoint, Timestamp } from 'firebase-admin/firestore';
 import { db, Collections } from '../config/firebase';
 import { PairMatchingService } from './pair-matching.service';
+import { NotificationService } from './notification.service';
 import {
   AvailabilitySegment,
   AvailabilityOverlapSegment,
@@ -38,6 +39,13 @@ function selectTemplate(eventType: EventType) {
 function calculatePairsPerEvent(eventType: EventType) {
   const template = selectTemplate(eventType);
   return Math.max(1, Math.floor(template.groupSize / 2));
+}
+
+function formatEventTypeLabel(eventType: EventType): string {
+  return eventType
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function buildVenueOptionId(eventType: EventType, index: number, venue: VenueConfig): string {
@@ -213,6 +221,49 @@ async function createPendingEventDocument(
 }
 
 export class EventOrchestrationService {
+  private static readonly ACTIVE_ASSIGNMENT_STATUSES = new Set<EventParticipantStatus | PendingEventAssignment['status']>([
+    'pending_join',
+    'joined',
+    'confirmed',
+  ]);
+
+  private static async userHasActiveEventOfType(userId: string, eventType: EventType): Promise<boolean> {
+    try {
+      const userSnap = await db.collection(Collections.USERS).doc(userId).get();
+      if (!userSnap.exists) {
+        return false;
+      }
+      const userData = userSnap.data() as User;
+      const assignments = userData.pendingEvents || [];
+      return assignments.some(
+        (assignment) =>
+          assignment.eventType === eventType &&
+          this.ACTIVE_ASSIGNMENT_STATUSES.has(assignment.status as any)
+      );
+    } catch (error) {
+      console.warn('[EventOrchestration] Failed to evaluate user assignments', { userId, error });
+      return false;
+    }
+  }
+
+  private static async filterEligiblePairsForEventType(
+    pairs: PairMatch[],
+    eventType: EventType
+  ): Promise<PairMatch[]> {
+    const filtered: PairMatch[] = [];
+    for (const pair of pairs) {
+      const conflicts = await Promise.all(
+        pair.userIds.map((userId) => this.userHasActiveEventOfType(userId, eventType))
+      );
+
+      if (conflicts.some(Boolean)) {
+        continue;
+      }
+      filtered.push(pair);
+    }
+    return filtered;
+  }
+
   static async processAllQueues(): Promise<Record<EventType, string[]>> {
     const createdEventsByType: Record<EventType, string[]> = {
       coffee: [],
@@ -238,7 +289,7 @@ export class EventOrchestrationService {
     }
 
     // Remove pairs that are already tied to an event (defensive, though query should exclude them)
-    const eligiblePairs = queuedPairs
+    let eligiblePairs = queuedPairs
       .filter((match) => !match.pendingEventId)
       .sort((a, b) => {
         const aMillis = a.availabilityComputedAt ? a.availabilityComputedAt.toMillis() : 0;
@@ -246,11 +297,37 @@ export class EventOrchestrationService {
         return aMillis - bMillis;
       });
 
+    eligiblePairs = await this.filterEligiblePairsForEventType(eligiblePairs, eventType);
+
     const createdEventIds: string[] = [];
     const now = Timestamp.now();
 
     while (eligiblePairs.length >= pairsRequired) {
-      const pairsForEvent = eligiblePairs.splice(0, pairsRequired);
+      // Select pairs ensuring no user appears more than once
+      const pairsForEvent: PairMatch[] = [];
+      const usedUserIds = new Set<string>();
+
+      for (const pair of eligiblePairs) {
+        if (pairsForEvent.length >= pairsRequired) {
+          break;
+        }
+
+        // Check if any user in this pair is already used
+        const hasOverlap = pair.userIds.some(userId => usedUserIds.has(userId));
+        if (!hasOverlap) {
+          pairsForEvent.push(pair);
+          pair.userIds.forEach(userId => usedUserIds.add(userId));
+        }
+      }
+
+      // If we couldn't find enough non-overlapping pairs, stop trying to create events
+      if (pairsForEvent.length < pairsRequired) {
+        break;
+      }
+
+      // Remove the selected pairs from eligiblePairs
+      eligiblePairs = eligiblePairs.filter(pair => !pairsForEvent.includes(pair));
+
       const eventId = await createPendingEventDocument(eventType, pairsForEvent, now);
 
       await updatePairMatchesWithEvent(pairsForEvent, eventId, now);
@@ -263,6 +340,19 @@ export class EventOrchestrationService {
       const assignment = buildPendingAssignment(eventId, eventType, now);
       await Promise.all(
         Array.from(uniqueUserIds).map((userId) => assignPendingEventToUser(userId, assignment))
+      );
+
+      const eventTitle = selectTemplate(eventType).title;
+      await Promise.all(
+        Array.from(uniqueUserIds).map((userId) =>
+          NotificationService.sendEventVoteInvitation(userId, eventId, eventType, eventTitle)
+        )
+      );
+
+      // Remove any remaining pairs that include users already assigned to an event of this type
+      const assignedIds = new Set(uniqueUserIds);
+      eligiblePairs = eligiblePairs.filter(
+        (pair) => !pair.userIds.some((userId) => assignedIds.has(userId))
       );
 
       createdEventIds.push(eventId);
@@ -282,6 +372,7 @@ export class EventOrchestrationService {
     const userRefs = pair.userIds.map((userId) => db.collection(Collections.USERS).doc(userId));
 
     let success = false;
+    let eventTitle: string | undefined;
 
     await db.runTransaction(async (tx) => {
       const [eventSnap, pairSnap, ...userSnaps] = await Promise.all([
@@ -298,6 +389,8 @@ export class EventOrchestrationService {
       if (eventData.status === 'canceled') {
         return;
       }
+
+      eventTitle = eventData.title;
 
       const requiredPairs = eventData.requiredPairCount ?? calculatePairsPerEvent(eventType);
       const currentPairs = (eventData.pendingPairMatchIds || []).length;
@@ -372,6 +465,12 @@ export class EventOrchestrationService {
     if (success) {
       const assignment = buildPendingAssignment(eventId, eventType, now);
       await Promise.all(pair.userIds.map((userId) => assignPendingEventToUser(userId, assignment)));
+      const templateTitle = eventTitle || selectTemplate(eventType).title;
+      await Promise.all(
+        pair.userIds.map((userId) =>
+          NotificationService.sendEventVoteInvitation(userId, eventId, eventType, templateTitle)
+        )
+      );
     }
 
     return success;

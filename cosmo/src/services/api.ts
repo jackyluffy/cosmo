@@ -99,6 +99,7 @@ const realAPI = {
     getPotential: () => api.get('/api/v1/swipe/potential'),
     recordSwipe: (userId: string, action: 'like' | 'pass') =>
       api.post('/api/v1/swipe', { userId, action }),
+    getLikeSummary: () => api.get('/api/v1/swipe/likes/summary'),
   },
 
   // Group dating events endpoints

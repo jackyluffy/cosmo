@@ -4,6 +4,7 @@ exports.SwipeController = void 0;
 const firebase_1 = require("../config/firebase");
 const firestore_1 = require("firebase-admin/firestore");
 const pair_matching_service_1 = require("../services/pair-matching.service");
+const notification_service_1 = require("../services/notification.service");
 class SwipeController {
     /**
      * Get swipe deck (profiles to swipe on)
@@ -147,6 +148,8 @@ class SwipeController {
                     error: 'Already swiped on this user',
                 });
             }
+            let missedPotential = false;
+            let missedLikerName;
             // Record the swipe
             await firebase_1.db.collection(firebase_1.Collections.SWIPES).add({
                 userId,
@@ -154,6 +157,34 @@ class SwipeController {
                 direction,
                 createdAt: firestore_1.Timestamp.now(),
             });
+            if (direction === 'like') {
+                try {
+                    const likerName = req.user?.profile?.name;
+                    await notification_service_1.NotificationService.sendIncomingLike(targetId, likerName);
+                }
+                catch (notifyError) {
+                    console.error('Failed to send incoming like notification:', notifyError);
+                }
+            }
+            if (direction === 'skip') {
+                const incomingLike = await firebase_1.db
+                    .collection(firebase_1.Collections.SWIPES)
+                    .where('userId', '==', targetId)
+                    .where('targetId', '==', userId)
+                    .where('direction', '==', 'like')
+                    .limit(1)
+                    .get();
+                if (!incomingLike.empty) {
+                    const likeDoc = incomingLike.docs[0];
+                    await likeDoc.ref.set({
+                        dismissedByTarget: true,
+                        dismissedAt: firestore_1.Timestamp.now(),
+                    }, { merge: true });
+                    missedPotential = true;
+                    const likerData = targetDoc.data();
+                    missedLikerName = likerData?.profile?.name;
+                }
+            }
             // Check for match if it's a like
             let isMatch = false;
             let pairMatch = null;
@@ -168,6 +199,16 @@ class SwipeController {
                 if (!reverseSwipe.empty) {
                     // It's a match!
                     isMatch = true;
+                    try {
+                        const reverseDoc = reverseSwipe.docs[0];
+                        await reverseDoc.ref.set({
+                            matched: true,
+                            matchedAt: firestore_1.Timestamp.now(),
+                        }, { merge: true });
+                    }
+                    catch (matchUpdateError) {
+                        console.error('Failed to flag reverse swipe as matched:', matchUpdateError);
+                    }
                     const currentUser = req.user;
                     const targetData = targetDoc.data();
                     pairMatch = await pair_matching_service_1.PairMatchingService.upsertPairMatch({ id: currentUser.id, profile: currentUser.profile }, { id: targetDoc.id, profile: targetData.profile });
@@ -180,6 +221,8 @@ class SwipeController {
                     targetId,
                     direction,
                     pairMatch,
+                    missedPotential,
+                    missedLikerName,
                 },
                 message: isMatch ? "It's a match!" : 'Swipe recorded',
             });
@@ -189,6 +232,54 @@ class SwipeController {
             return res.status(500).json({
                 success: false,
                 error: 'Failed to record swipe',
+            });
+        }
+    }
+    /**
+     * Get summary information about likes received by the current user
+     * GET /swipe/likes/summary
+     */
+    static async getLikeSummary(req, res) {
+        try {
+            const userId = req.userId;
+            const likesSnapshot = await firebase_1.db
+                .collection(firebase_1.Collections.SWIPES)
+                .where('targetId', '==', userId)
+                .where('direction', '==', 'like')
+                .get();
+            const likerIds = new Set();
+            let likesLast24h = 0;
+            const nowMs = Date.now();
+            const oneDayMs = 24 * 60 * 60 * 1000;
+            likesSnapshot.docs.forEach((doc) => {
+                const data = doc.data();
+                if (data?.dismissedByTarget || data?.matched) {
+                    return;
+                }
+                if (data?.userId) {
+                    likerIds.add(String(data.userId));
+                }
+                const createdAt = data?.createdAt;
+                if (createdAt?.toDate) {
+                    const diffMs = nowMs - createdAt.toDate().getTime();
+                    if (diffMs <= oneDayMs) {
+                        likesLast24h += 1;
+                    }
+                }
+            });
+            return res.status(200).json({
+                success: true,
+                data: {
+                    totalLikes: likerIds.size,
+                    likesLast24h,
+                },
+            });
+        }
+        catch (error) {
+            console.error('getLikeSummary error:', error);
+            return res.status(500).json({
+                success: false,
+                error: 'Failed to load like summary',
             });
         }
     }

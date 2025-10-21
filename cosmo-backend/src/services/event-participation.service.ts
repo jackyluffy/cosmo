@@ -302,9 +302,16 @@ export class EventParticipationService {
         : updatedEvent;
 
       const participantStatuses = refreshedEvent.participantStatuses || {};
-      const joinedParticipantIds = Object.entries(participantStatuses)
-        .filter(([, status]) => status === 'joined')
+      const activeStatuses = new Set(['joined', 'confirmed', 'completed']);
+      const fromStatuses = Object.entries(participantStatuses)
+        .filter(([, status]) => activeStatuses.has(status as string))
         .map(([id]) => id);
+      const fromParticipantList = Array.isArray(refreshedEvent.participantUserIds)
+        ? refreshedEvent.participantUserIds.filter((id): id is string => Boolean(id))
+        : [];
+      const joinedParticipantIds = Array.from(
+        new Set<string>([...fromStatuses, ...fromParticipantList])
+      );
 
       const finalVenue = extractVenue(
         refreshedEvent,

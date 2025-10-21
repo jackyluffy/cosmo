@@ -35,6 +35,11 @@ export default function ProfileScreen() {
   const [newInterest, setNewInterest] = useState('');
   const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfo | null>(null);
   const [loadingSubscription, setLoadingSubscription] = useState(false);
+  const [isEditingBio, setIsEditingBio] = useState(false);
+  const [editedBio, setEditedBio] = useState('');
+  const [isEditingSocialMedia, setIsEditingSocialMedia] = useState(false);
+  const [editedSocialPlatform, setEditedSocialPlatform] = useState<'instagram' | 'wechat' | null>(null);
+  const [editedSocialHandle, setEditedSocialHandle] = useState('');
 
   useEffect(() => {
     loadProfile();
@@ -238,6 +243,62 @@ export default function ProfileScreen() {
     }
   }, [editedInterests, updateProfile]);
 
+  const openBioEditor = () => {
+    setEditedBio(user?.profile?.bio || '');
+    setIsEditingBio(true);
+  };
+
+  const saveBio = async () => {
+    try {
+      const trimmedBio = editedBio.trim();
+      await updateProfile({ bio: trimmedBio });
+      setIsEditingBio(false);
+      Alert.alert('Success', 'Bio updated');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.message ||
+        'Failed to update bio';
+      Alert.alert('Error', message);
+    }
+  };
+
+  const openSocialMediaEditor = () => {
+    const socialMedia = user?.profile?.socialMedia;
+    if (socialMedia) {
+      setEditedSocialPlatform(socialMedia.platform as 'instagram' | 'wechat');
+      setEditedSocialHandle(socialMedia.handle || '');
+    } else {
+      setEditedSocialPlatform(null);
+      setEditedSocialHandle('');
+    }
+    setIsEditingSocialMedia(true);
+  };
+
+  const saveSocialMedia = async () => {
+    try {
+      if (editedSocialPlatform && editedSocialHandle.trim()) {
+        await updateProfile({
+          socialMedia: {
+            platform: editedSocialPlatform,
+            handle: editedSocialHandle.trim(),
+          },
+        });
+      } else {
+        // Remove social media if both are empty
+        await updateProfile({ socialMedia: null });
+      }
+      setIsEditingSocialMedia(false);
+      Alert.alert('Success', 'Social media updated');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.message ||
+        'Failed to update social media';
+      Alert.alert('Error', message);
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -259,8 +320,44 @@ export default function ProfileScreen() {
         <Text style={styles.details}>
           {user?.profile?.age || 'N/A'} • {user?.profile?.gender || 'N/A'}
         </Text>
-        {user?.profile?.bio && (
+      </View>
+
+      {/* Bio Section */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.bioQuestion}>One thing I want you to know about me</Text>
+          <TouchableOpacity onPress={openBioEditor}>
+            <Ionicons name="pencil" size={20} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
+        {user?.profile?.bio ? (
           <Text style={styles.bio}>{user.profile.bio}</Text>
+        ) : (
+          <Text style={styles.noBioText}>Share something unique about yourself</Text>
+        )}
+      </View>
+
+      {/* Social Media Section */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Social Media</Text>
+          <TouchableOpacity onPress={openSocialMediaEditor}>
+            <Ionicons name="pencil" size={20} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
+        {user?.profile?.socialMedia ? (
+          <View style={styles.socialMediaDisplay}>
+            <Ionicons
+              name={user.profile.socialMedia.platform === 'instagram' ? 'logo-instagram' : 'chatbubbles'}
+              size={24}
+              color={Colors.primary}
+            />
+            <Text style={styles.socialMediaText}>
+              {user.profile.socialMedia.platform === 'instagram' ? 'Instagram' : 'WeChat'}: @{user.profile.socialMedia.handle}
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.noSocialMediaText}>No social media added</Text>
         )}
       </View>
 
@@ -377,10 +474,17 @@ export default function ProfileScreen() {
                 onPress={async () => {
                   try {
                     setLoadingSubscription(true);
+                    console.log('[ProfileScreen] Initiating purchase...');
                     await iapService.purchaseSubscription();
                     await loadSubscriptionInfo();
-                  } catch (error) {
-                    console.error('Purchase error:', error);
+                    Alert.alert('Success', 'Purchase initiated! Check your subscription status.');
+                  } catch (error: any) {
+                    console.error('[ProfileScreen] Purchase error:', error);
+                    const errorMessage = error?.message || error?.code || 'An unknown error occurred';
+                    Alert.alert(
+                      'Purchase Failed',
+                      `Unable to complete purchase: ${errorMessage}\n\nMake sure you have:\n• Set up the subscription in App Store Connect\n• Enabled In-App Purchases capability\n• Signed in with a sandbox tester account`
+                    );
                   } finally {
                     setLoadingSubscription(false);
                   }
@@ -511,6 +615,141 @@ export default function ProfileScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Bio Editor Modal */}
+      <Modal
+        visible={isEditingBio}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsEditingBio(false)}
+      >
+        <View style={styles.bioModalOverlay}>
+          <View style={styles.bioModal}>
+            <View style={styles.bioModalHeader}>
+              <TouchableOpacity onPress={() => setIsEditingBio(false)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>About Me</Text>
+              <TouchableOpacity onPress={saveBio}>
+                <Text style={styles.saveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.bioModalContent}>
+              <Text style={styles.bioModalQuestion}>
+                One thing I want you to know about me
+              </Text>
+              <TextInput
+                style={styles.bioInput}
+                placeholder="Share something unique about yourself..."
+                placeholderTextColor={Colors.gray}
+                value={editedBio}
+                onChangeText={setEditedBio}
+                multiline
+                maxLength={500}
+                autoFocus
+              />
+              <Text style={styles.charCount}>
+                {editedBio.length}/500
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Social Media Editor Modal */}
+      <Modal
+        visible={isEditingSocialMedia}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsEditingSocialMedia(false)}
+      >
+        <View style={styles.bioModalOverlay}>
+          <View style={styles.bioModal}>
+            <View style={styles.bioModalHeader}>
+              <TouchableOpacity onPress={() => setIsEditingSocialMedia(false)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>Social Media</Text>
+              <TouchableOpacity onPress={saveSocialMedia}>
+                <Text style={styles.saveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.bioModalContent}>
+              <Text style={styles.socialMediaInstructions}>
+                Share your social media to connect with your matches
+              </Text>
+
+              <Text style={styles.socialMediaLabel}>Select Platform</Text>
+              <View style={styles.platformButtonsRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.platformModalButton,
+                    editedSocialPlatform === 'instagram' && styles.platformModalButtonSelected,
+                  ]}
+                  onPress={() => setEditedSocialPlatform('instagram')}
+                >
+                  <Ionicons
+                    name="logo-instagram"
+                    size={28}
+                    color={editedSocialPlatform === 'instagram' ? Colors.white : Colors.gray}
+                  />
+                  <Text
+                    style={[
+                      styles.platformModalText,
+                      editedSocialPlatform === 'instagram' && styles.platformModalTextSelected,
+                    ]}
+                  >
+                    Instagram
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.platformModalButton,
+                    editedSocialPlatform === 'wechat' && styles.platformModalButtonSelected,
+                  ]}
+                  onPress={() => setEditedSocialPlatform('wechat')}
+                >
+                  <Ionicons
+                    name="chatbubbles"
+                    size={28}
+                    color={editedSocialPlatform === 'wechat' ? Colors.white : Colors.gray}
+                  />
+                  <Text
+                    style={[
+                      styles.platformModalText,
+                      editedSocialPlatform === 'wechat' && styles.platformModalTextSelected,
+                    ]}
+                  >
+                    WeChat
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {editedSocialPlatform && (
+                <View style={styles.handleInputSection}>
+                  <Text style={styles.socialMediaLabel}>
+                    {editedSocialPlatform === 'instagram' ? 'Instagram' : 'WeChat'} Handle
+                  </Text>
+                  <TextInput
+                    style={styles.socialMediaInput}
+                    placeholder={`@${editedSocialPlatform === 'instagram' ? 'username' : 'wechat_id'}`}
+                    placeholderTextColor={Colors.gray}
+                    value={editedSocialHandle}
+                    onChangeText={setEditedSocialHandle}
+                    autoCapitalize="none"
+                    maxLength={50}
+                    autoFocus
+                  />
+                  <Text style={styles.socialMediaHint}>
+                    Your handle will be visible to your matches
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -561,7 +800,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.text,
     lineHeight: 24,
-    marginTop: 10,
+  },
+  bioQuestion: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  noBioText: {
+    fontSize: 14,
+    color: Colors.gray,
+    fontStyle: 'italic',
   },
   sectionHeader: {
     marginBottom: 15,
@@ -815,5 +1063,127 @@ const styles = StyleSheet.create({
   },
   interestCheckboxTextSelected: {
     color: Colors.white,
+  },
+  bioModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  bioModal: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+  },
+  bioModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightGray,
+  },
+  bioModalContent: {
+    padding: 20,
+  },
+  bioModalQuestion: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 15,
+    lineHeight: 22,
+  },
+  bioInput: {
+    fontSize: 16,
+    color: Colors.text,
+    minHeight: 150,
+    textAlignVertical: 'top',
+    padding: 15,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.lightGray,
+  },
+  charCount: {
+    fontSize: 14,
+    color: Colors.gray,
+    textAlign: 'right',
+    marginTop: 10,
+  },
+  socialMediaDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  socialMediaText: {
+    fontSize: 16,
+    color: Colors.text,
+  },
+  noSocialMediaText: {
+    fontSize: 14,
+    color: Colors.gray,
+    fontStyle: 'italic',
+  },
+  socialMediaInstructions: {
+    fontSize: 14,
+    color: Colors.gray,
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  socialMediaLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 12,
+  },
+  platformButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  platformModalButton: {
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    padding: 20,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: Colors.lightGray,
+  },
+  platformModalButtonSelected: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  platformModalText: {
+    fontSize: 15,
+    color: Colors.text,
+    fontWeight: '600',
+  },
+  platformModalTextSelected: {
+    color: Colors.white,
+    fontWeight: '700',
+  },
+  handleInputSection: {
+    marginTop: 4,
+  },
+  socialMediaInput: {
+    fontSize: 16,
+    color: Colors.text,
+    padding: 15,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.lightGray,
+    marginBottom: 8,
+  },
+  socialMediaHint: {
+    fontSize: 13,
+    color: Colors.gray,
+    fontStyle: 'italic',
   },
 });

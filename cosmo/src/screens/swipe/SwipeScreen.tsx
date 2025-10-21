@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -18,9 +18,11 @@ import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { swipeAPI } from '../../services/api';
 import { Colors, Spacing, Typography, BorderRadius } from '../../constants/theme';
 import { useAuthStore } from '../../store/authStore';
+import { useSwipeStore } from '../../store/swipeStore';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 120;
@@ -109,6 +111,10 @@ interface Profile {
   education?: string;
   ethnicity?: string;
   datingIntention?: string;
+  socialMedia?: {
+    platform: string;
+    handle: string;
+  };
 }
 
 interface FilterOptions {
@@ -146,6 +152,17 @@ export default function SwipeScreen() {
   const isPhotoInteractingRef = useRef(false);
   const flatListRefs = useRef<Record<string, FlatList<string> | null>>({});
   const photoHeight = Math.max(cardHeight, 1);
+  const incomingLikes = useSwipeStore((state) => state.incomingLikes);
+  const fetchLikeStats = useSwipeStore((state) => state.fetchLikeStats);
+  const decrementIncomingLikes = useSwipeStore((state) => state.decrementIncomingLikes);
+  const [likeHintVisible, setLikeHintVisible] = useState(false);
+  const likeHintTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastLikeHintAtRef = useRef<number>(0);
+  const previousLikeCountRef = useRef<number>(0);
+  const [missedHintVisible, setMissedHintVisible] = useState(false);
+  const [missedHintName, setMissedHintName] = useState<string | undefined>();
+  const missedHintTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const HINT_STACK_SPACING = 64;
 
   const interestReloadKey = useMemo(() => {
     const interests = user?.profile?.interests;
@@ -216,6 +233,102 @@ export default function SwipeScreen() {
     });
   }, [currentIndex, profiles, photoHeight]);
 
+  useEffect(() => {
+    return () => {
+      if (likeHintTimeoutRef.current) {
+        clearTimeout(likeHintTimeoutRef.current);
+        likeHintTimeoutRef.current = null;
+      }
+      if (missedHintTimeoutRef.current) {
+        clearTimeout(missedHintTimeoutRef.current);
+        missedHintTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchLikeStats().catch((error) => {
+        console.error('[SwipeScreen] fetchLikeStats error:', error);
+      });
+    }, [fetchLikeStats])
+  );
+
+  useEffect(() => {
+    if (incomingLikes <= 0) {
+      previousLikeCountRef.current = incomingLikes;
+      if (likeHintVisible) {
+        setLikeHintVisible(false);
+      }
+      return;
+    }
+
+    const now = Date.now();
+    const previousLikes = previousLikeCountRef.current;
+    const increased = incomingLikes > previousLikes;
+    const sinceLastHint = now - lastLikeHintAtRef.current;
+    const minIntervalMs = 3 * 60 * 1000; // 3 minutes
+    const cooldownMs = 45 * 1000;
+
+    if ((increased || sinceLastHint > minIntervalMs) && sinceLastHint > cooldownMs) {
+      const triggerProbability = increased ? 1 : 0.4;
+      if (Math.random() < triggerProbability) {
+        lastLikeHintAtRef.current = now;
+        setLikeHintVisible(true);
+        if (likeHintTimeoutRef.current) {
+          clearTimeout(likeHintTimeoutRef.current);
+        }
+        likeHintTimeoutRef.current = setTimeout(() => {
+          setLikeHintVisible(false);
+          likeHintTimeoutRef.current = null;
+        }, 6000);
+      }
+    }
+
+    previousLikeCountRef.current = incomingLikes;
+  }, [incomingLikes, likeHintVisible]);
+
+  const handleDismissLikeHint = useCallback(() => {
+    if (likeHintTimeoutRef.current) {
+      clearTimeout(likeHintTimeoutRef.current);
+      likeHintTimeoutRef.current = null;
+    }
+    setLikeHintVisible(false);
+  }, []);
+
+  const showMissedHint = useCallback(
+    (name?: string) => {
+      if (likeHintTimeoutRef.current) {
+        clearTimeout(likeHintTimeoutRef.current);
+        likeHintTimeoutRef.current = null;
+      }
+      if (likeHintVisible) {
+        setLikeHintVisible(false);
+      }
+      previousLikeCountRef.current = Math.max(0, previousLikeCountRef.current - 1);
+      setMissedHintName(name);
+      setMissedHintVisible(true);
+      if (missedHintTimeoutRef.current) {
+        clearTimeout(missedHintTimeoutRef.current);
+      }
+      missedHintTimeoutRef.current = setTimeout(() => {
+        setMissedHintVisible(false);
+        setMissedHintName(undefined);
+        missedHintTimeoutRef.current = null;
+      }, 6000);
+    },
+    [likeHintVisible]
+  );
+
+  const handleDismissMissedHint = useCallback(() => {
+    if (missedHintTimeoutRef.current) {
+      clearTimeout(missedHintTimeoutRef.current);
+      missedHintTimeoutRef.current = null;
+    }
+    setMissedHintVisible(false);
+    setMissedHintName(undefined);
+  }, []);
+
   const loadProfiles = async () => {
     try {
       if (interestReloadKey === 'none') {
@@ -259,6 +372,10 @@ export default function SwipeScreen() {
         const education = p.profile?.education ? String(p.profile.education) : undefined;
         const ethnicity = p.profile?.ethnicity ? String(p.profile.ethnicity) : undefined;
         const datingIntention = p.profile?.datingIntention ? String(p.profile.datingIntention) : undefined;
+        const socialMedia = p.profile?.socialMedia ? {
+          platform: String(p.profile.socialMedia.platform),
+          handle: String(p.profile.socialMedia.handle)
+        } : undefined;
 
         return {
           id,
@@ -274,6 +391,7 @@ export default function SwipeScreen() {
           education,
           ethnicity,
           datingIntention,
+          socialMedia,
         };
       });
 
@@ -366,6 +484,17 @@ export default function SwipeScreen() {
 
     swipeAPI
       .swipe(profile.id, direction === 'right' ? 'like' : 'skip')
+      .then((response) => {
+        const payload = response?.data?.data;
+        if (direction === 'left' && payload?.missedPotential) {
+          decrementIncomingLikes(1);
+          showMissedHint(payload?.missedLikerName);
+        }
+        if (direction === 'right' && payload?.match) {
+          decrementIncomingLikes(1);
+          previousLikeCountRef.current = Math.max(0, previousLikeCountRef.current - 1);
+        }
+      })
       .catch(error => {
         console.error('Failed to record swipe:', error);
       });
@@ -645,6 +774,17 @@ export default function SwipeScreen() {
                       </View>
                     )}
 
+                    {profile.socialMedia && (
+                      <View style={styles.overlayDetailItem}>
+                        <Ionicons
+                          name={profile.socialMedia.platform === 'instagram' ? 'logo-instagram' : 'chatbubbles'}
+                          size={14}
+                          color={Colors.white}
+                        />
+                        <Text style={styles.overlayDetailText}>@{profile.socialMedia.handle}</Text>
+                      </View>
+                    )}
+
                     {profile.bio && <Text style={styles.overlayBio}>{profile.bio}</Text>}
 
                     {profile.interests && profile.interests.length > 0 && (
@@ -667,6 +807,31 @@ export default function SwipeScreen() {
       </Animated.View>
     );
   };
+
+  const hintItems: Array<{ key: string; type: 'like' | 'missed'; top: number; name?: string }> = [];
+  const baseHintTop = insets.top + Spacing.sm;
+  let hintCount = 0;
+
+  if (missedHintVisible) {
+    hintItems.push({
+      key: 'missed',
+      type: 'missed',
+      top: baseHintTop + hintCount * HINT_STACK_SPACING,
+      name: missedHintName,
+    });
+    hintCount += 1;
+  }
+
+  if (likeHintVisible && incomingLikes > 0) {
+    hintItems.push({
+      key: 'like',
+      type: 'like',
+      top: baseHintTop + hintCount * HINT_STACK_SPACING,
+    });
+    hintCount += 1;
+  }
+
+  const filterButtonTop = insets.top + Spacing.lg + hintCount * (HINT_STACK_SPACING - 20);
 
   if (loading) {
     return (
@@ -692,9 +857,48 @@ export default function SwipeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {hintItems.map((hint) => (
+        <View
+          key={hint.key}
+          style={[
+            styles.hintBase,
+            hint.type === 'like' ? styles.likeHintBackground : styles.missedHintBackground,
+            { top: hint.top },
+          ]}
+        >
+          <Ionicons
+            name={hint.type === 'like' ? 'heart' : 'alert-circle'}
+            size={18}
+            color={Colors.white}
+            style={styles.hintIcon}
+          />
+          <View style={styles.hintTextWrap}>
+            <Text style={styles.hintText}>
+              {hint.type === 'like'
+                ? incomingLikes === 1
+                  ? '1 person has liked you.'
+                  : `${incomingLikes} people have liked you.`
+                : hint.name
+                ? `You passed on ${hint.name}.`
+                : 'You just passed on someone who liked you.'}
+            </Text>
+            <Text style={styles.hintSubText}>
+              {hint.type === 'like'
+                ? 'Keep swiping to meet them.'
+                : "We'll keep looking for more matches."}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={hint.type === 'like' ? handleDismissLikeHint : handleDismissMissedHint}
+            style={styles.hintClose}
+          >
+            <Ionicons name="close" size={16} color={Colors.white} />
+          </TouchableOpacity>
+        </View>
+      ))}
       {/* Filter button only (top left) */}
       <TouchableOpacity
-        style={[styles.filterButton, { top: insets.top + Spacing.lg }]}
+        style={[styles.filterButton, { top: filterButtonTop }]}
         onPress={() => setFilterModalVisible(true)}
       >
         <Ionicons name="options-outline" size={24} color={Colors.white} />
@@ -997,6 +1201,49 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 12,
     fontWeight: '600',
+  },
+  hintBase: {
+    position: 'absolute',
+    right: Spacing.lg,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 20,
+    maxWidth: '80%',
+  },
+  likeHintBackground: {
+    backgroundColor: Colors.primary,
+  },
+  missedHintBackground: {
+    backgroundColor: Colors.error,
+  },
+  hintIcon: {
+    marginRight: Spacing.sm,
+  },
+  hintTextWrap: {
+    flex: 1,
+  },
+  hintText: {
+    ...Typography.bodySmall,
+    color: Colors.white,
+    fontWeight: '600',
+  },
+  hintSubText: {
+    ...Typography.caption,
+    color: Colors.white,
+    opacity: 0.9,
+    marginTop: 2,
+  },
+  hintClose: {
+    marginLeft: Spacing.sm,
+    padding: Spacing.xs,
   },
   swipeOverlay: {
     position: 'absolute',

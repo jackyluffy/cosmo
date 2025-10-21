@@ -13,6 +13,7 @@ import {
   Image,
   Modal,
   ScrollView,
+  Dimensions,
 } from 'react-native';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,6 +50,7 @@ export default function EventChatScreen() {
   const isSending = sendingMessages[chatId];
   const isChatLoading = loadingChats[chatId];
   const participants = chat?.participants || [];
+
   const participantMap = useMemo(() => {
     const map: Record<string, ChatParticipant> = {};
     participants.forEach((participant) => {
@@ -58,6 +60,8 @@ export default function EventChatScreen() {
   }, [participants]);
   const [selectedParticipant, setSelectedParticipant] = useState<ChatParticipant | null>(null);
   const [profileVisible, setProfileVisible] = useState(false);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [attendeesExpanded, setAttendeesExpanded] = useState(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: true, title: eventTitle || 'Event Chat' });
@@ -71,6 +75,22 @@ export default function EventChatScreen() {
       console.error('[EventChatScreen] fetchMessages error:', error);
     });
   }, [chatId, fetchChat, fetchMessages]);
+
+  useEffect(() => {
+    if (chat) {
+      console.log('[EventChatScreen] Chat loaded:', {
+        chatId,
+        participantIds: chat.participantIds,
+        participantsCount: participants.length,
+        participants: participants.map(p => ({
+          id: p.id,
+          name: p.name,
+          hasPhoto: !!p.photo,
+          photosCount: p.photos?.length || 0
+        }))
+      });
+    }
+  }, [chat, chatId, participants]);
 
   const handleRefresh = async () => {
     try {
@@ -97,6 +117,13 @@ export default function EventChatScreen() {
   };
 
   const handleParticipantPress = (participant: ChatParticipant) => {
+    console.log('[EventChatScreen] Opening profile:', {
+      name: participant.name,
+      hasPhoto: !!participant.photo,
+      hasPhotos: !!participant.photos,
+      photosCount: participant.photos?.length || 0,
+      photos: participant.photos,
+    });
     setSelectedParticipant(participant);
     setProfileVisible(true);
   };
@@ -104,6 +131,14 @@ export default function EventChatScreen() {
   const closeProfileModal = () => {
     setProfileVisible(false);
     setSelectedParticipant(null);
+    setCurrentPhotoIndex(0);
+  };
+
+  const handlePhotoScroll = (event: any) => {
+    const contentOffsetX = event.nativeEvent.contentOffset.x;
+    const viewWidth = Dimensions.get('window').width - Spacing.lg * 2;
+    const index = Math.round(contentOffsetX / viewWidth);
+    setCurrentPhotoIndex(index);
   };
 
   const renderMessage = ({ item }: { item: typeof chatMessages[number] }) => {
@@ -145,73 +180,109 @@ export default function EventChatScreen() {
     );
   };
 
-  const renderVenueDetails = () => {
-    if (!chat?.venue) {
-      return null;
-    }
-    return (
-      <View style={styles.venueCard}>
-        <Text style={styles.venueTitle}>{chat.venue.name}</Text>
-        <Text style={styles.venueAddress}>{chat.venue.address}</Text>
-        {chat.venue.description ? (
-          <Text style={styles.venueDescription}>{chat.venue.description}</Text>
-        ) : null}
-        <View style={styles.venueMetaRow}>
-          {chat.venue.priceRange ? (
-            <View style={styles.venueChip}>
-              <Ionicons name="pricetag-outline" size={14} color={Colors.textSecondary} />
-              <Text style={styles.venueChipText}>
-                ${chat.venue.priceRange.min} - ${chat.venue.priceRange.max}
-              </Text>
-            </View>
-          ) : null}
-          {chat.venue.durationMinutes ? (
-            <View style={styles.venueChip}>
-              <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
-              <Text style={styles.venueChipText}>
-                {chat.venue.durationMinutes} min
-              </Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
-    );
-  };
+  // const renderVenueDetails = () => {
+  //   if (!chat?.venue) {
+  //     return null;
+  //   }
+  //   return (
+  //     <View style={styles.venueCard}>
+  //       <View style={styles.venueHeader}>
+  //         <Ionicons name="location" size={16} color={Colors.primary} />
+  //         <Text style={styles.venueLabel}>Meetup Spot</Text>
+  //       </View>
+  //       <Text style={styles.venueTitle}>{chat.venue.name}</Text>
+  //       <TouchableOpacity onPress={() => {
+  //         const address = encodeURIComponent(chat.venue.address);
+  //         const url = Platform.OS === 'ios'
+  //           ? `maps://maps.apple.com/?q=${address}`
+  //           : `geo:0,0?q=${address}`;
+  //         require('react-native').Linking.openURL(url);
+  //       }}>
+  //         <View style={styles.venueAddressRow}>
+  //           <Ionicons name="navigate-outline" size={14} color={Colors.primary} />
+  //           <Text style={styles.venueAddress}>{chat.venue.address}</Text>
+  //         </View>
+  //       </TouchableOpacity>
+  //       {chat.venue.description ? (
+  //         <Text style={styles.venueDescription}>{chat.venue.description}</Text>
+  //       ) : null}
+  //       {(chat.venue.priceRange || chat.venue.durationMinutes) && (
+  //         <View style={styles.venueMetaRow}>
+  //           {chat.venue.priceRange ? (
+  //             <View style={styles.venueChip}>
+  //               <Ionicons name="cash-outline" size={12} color={Colors.primary} />
+  //               <Text style={styles.venueChipText}>
+  //                 ${chat.venue.priceRange.min} - ${chat.venue.priceRange.max}
+  //               </Text>
+  //             </View>
+  //           ) : null}
+  //           {chat.venue.durationMinutes ? (
+  //             <View style={styles.venueChip}>
+  //               <Ionicons name="time-outline" size={12} color={Colors.primary} />
+  //               <Text style={styles.venueChipText}>
+  //                 {chat.venue.durationMinutes} min
+  //               </Text>
+  //             </View>
+  //           ) : null}
+  //         </View>
+  //       )}
+  //     </View>
+  //   );
+  // };
 
   const renderParticipants = () => {
     if (!participants.length) return null;
+
+    const displayedParticipants = attendeesExpanded ? participants : participants.slice(0, 3);
+
     return (
       <View style={styles.participantsSection}>
-        <Text style={styles.participantsLabel}>Attendees</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.participantsRow}
+        <TouchableOpacity
+          style={styles.participantsHeader}
+          onPress={() => setAttendeesExpanded(!attendeesExpanded)}
+          activeOpacity={0.7}
         >
-          {participants.map((participant) => {
-            const avatar = participant.photo;
-            return (
-              <TouchableOpacity
-                key={participant.id}
-                style={styles.participantAvatarContainer}
-                onPress={() => handleParticipantPress(participant)}
-              >
-                {avatar ? (
-                  <Image source={{ uri: avatar }} style={styles.participantAvatar} />
-                ) : (
-                  <View style={[styles.participantAvatar, styles.participantFallback]}>
-                    <Text style={styles.participantFallbackText}>
-                      {initialsForName(participant.name)}
-                    </Text>
-                  </View>
-                )}
-                <Text style={styles.participantName} numberOfLines={1}>
-                  {participant.name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+          <Text style={styles.participantsLabel}>
+            Attendees ({participants.length})
+          </Text>
+          <Ionicons
+            name={attendeesExpanded ? 'chevron-up' : 'chevron-down'}
+            size={18}
+            color={Colors.textSecondary}
+          />
+        </TouchableOpacity>
+
+        {attendeesExpanded && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.participantsRow}
+          >
+            {displayedParticipants.map((participant) => {
+              const avatar = participant.photo;
+              return (
+                <TouchableOpacity
+                  key={participant.id}
+                  style={styles.participantAvatarContainer}
+                  onPress={() => handleParticipantPress(participant)}
+                >
+                  {avatar ? (
+                    <Image source={{ uri: avatar }} style={styles.participantAvatar} />
+                  ) : (
+                    <View style={[styles.participantAvatar, styles.participantFallback]}>
+                      <Text style={styles.participantFallbackText}>
+                        {initialsForName(participant.name)}
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={styles.participantName} numberOfLines={1}>
+                    {participant.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
     );
   };
@@ -224,19 +295,7 @@ export default function EventChatScreen() {
     >
       <View style={styles.content}>
         {renderParticipants()}
-        <View style={styles.bannerRow}>
-          {renderVenueDetails()}
-          {chat?.suggestedTimes && chat.suggestedTimes.length > 0 && (
-            <View style={styles.bannerCard}>
-              <Text style={styles.bannerTitle}>Suggested times</Text>
-              {chat.suggestedTimes.slice(0, 3).map((slot: any) => (
-                <Text key={`${slot.date}-${slot.segments?.join(',')}`} style={styles.bannerText}>
-                  {slot.date ? format(new Date(slot.date), 'EEE, MMM d') : slot.date} · {slot.segments?.join(', ')}
-                </Text>
-              ))}
-            </View>
-          )}
-        </View>
+        {/* Venue and suggested time details are hidden for now since the Events screen already highlights them */}
 
         {isChatLoading && !chat ? (
           <View style={styles.loadingState}>
@@ -281,11 +340,39 @@ export default function EventChatScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView>
-              {selectedParticipant?.photo ? (
-                <Image
-                  source={{ uri: selectedParticipant.photo }}
-                  style={styles.profilePhoto}
-                />
+              {selectedParticipant?.photos && selectedParticipant.photos.length > 0 ? (
+                <View>
+                  <ScrollView
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    onScroll={handlePhotoScroll}
+                    scrollEventThrottle={16}
+                    style={styles.photoGallery}
+                  >
+                    {selectedParticipant.photos.map((photoUrl, index) => (
+                      <Image
+                        key={index}
+                        source={{ uri: photoUrl }}
+                        style={styles.profilePhoto}
+                        resizeMode="cover"
+                      />
+                    ))}
+                  </ScrollView>
+                  {selectedParticipant.photos.length > 1 && (
+                    <View style={styles.photoIndicators}>
+                      {selectedParticipant.photos.map((_, index) => (
+                        <View
+                          key={index}
+                          style={[
+                            styles.photoIndicator,
+                            index === currentPhotoIndex && styles.photoIndicatorActive,
+                          ]}
+                        />
+                      ))}
+                    </View>
+                  )}
+                </View>
               ) : (
                 <View style={[styles.profilePhoto, styles.participantFallback]}>
                   <Text style={styles.participantFallbackText}>
@@ -447,32 +534,62 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gray,
   },
   venueCard: {
-    margin: Spacing.lg,
-    padding: Spacing.lg,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+    padding: Spacing.md,
     backgroundColor: Colors.white,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  venueHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+  },
+  venueLabel: {
+    ...Typography.caption,
+    color: Colors.primary,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    fontSize: 11,
+    marginLeft: Spacing.xs,
   },
   venueTitle: {
-    ...Typography.h3,
+    ...Typography.body,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: 2,
+  },
+  venueAddressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
   },
   venueAddress: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
+    ...Typography.bodySmall,
+    fontSize: 13,
+    color: Colors.primary,
+    marginLeft: Spacing.xs,
+    textDecorationLine: 'underline',
   },
   venueDescription: {
     ...Typography.bodySmall,
-    color: Colors.text,
-  },
-  venueMeta: {
-    ...Typography.caption,
+    fontSize: 12,
     color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+    lineHeight: 16,
   },
   venueMetaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: Spacing.sm,
+    gap: Spacing.sm,
   },
   venueChip: {
     flexDirection: 'row',
@@ -480,23 +597,80 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary100,
     borderRadius: BorderRadius.round,
     paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    marginRight: Spacing.sm,
-    marginBottom: Spacing.xs,
+    paddingVertical: 2,
   },
   venueChipText: {
     color: Colors.primary600,
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  suggestedTimesCard: {
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.sm,
+    padding: Spacing.md,
+    backgroundColor: Colors.white,
+    borderRadius: BorderRadius.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  suggestedTimesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+  },
+  suggestedTimesLabel: {
+    ...Typography.caption,
+    color: Colors.primary,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    fontSize: 11,
     marginLeft: Spacing.xs,
+  },
+  timeSlotsList: {
+    gap: Spacing.xs,
+  },
+  timeSlot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.xs,
+    backgroundColor: Colors.primary50,
+    borderRadius: BorderRadius.sm,
+  },
+  timeSlotContent: {
+    flex: 1,
+    marginLeft: Spacing.xs,
+  },
+  timeSlotDate: {
+    ...Typography.bodySmall,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 1,
+  },
+  timeSlotSegments: {
+    ...Typography.bodySmall,
+    fontSize: 11,
+    color: Colors.primary600,
   },
   participantsSection: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.lg,
   },
+  participantsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
   participantsLabel: {
     ...Typography.caption,
     color: Colors.textSecondary,
-    marginBottom: Spacing.sm,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -552,11 +726,32 @@ const styles = StyleSheet.create({
   profileModalTitle: {
     ...Typography.h3,
   },
+  photoGallery: {
+    marginBottom: Spacing.sm,
+  },
   profilePhoto: {
-    width: '100%',
-    height: 200,
+    width: Dimensions.get('window').width - Spacing.lg * 2,
+    height: 300,
     borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.md,
+  },
+  photoIndicators: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    gap: Spacing.xs,
+  },
+  photoIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.lightGray,
+  },
+  photoIndicatorActive: {
+    backgroundColor: Colors.primary,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   profileBio: {
     ...Typography.body,

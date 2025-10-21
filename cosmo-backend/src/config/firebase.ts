@@ -13,9 +13,14 @@ const projectId =
 const getServiceAccountFromFile = (filePath: string) => {
   const resolvedPath = path.resolve(filePath);
   if (!fs.existsSync(resolvedPath)) {
-    throw new Error(`Firebase credentials file not found at path: ${resolvedPath}`);
+    console.warn(`[Firebase] Credentials file not found at path: ${resolvedPath}, falling back to ADC`);
+    return null;
   }
   const fileContents = fs.readFileSync(resolvedPath, 'utf8');
+  if (!fileContents || fileContents.trim() === '') {
+    console.warn(`[Firebase] Credentials file is empty at path: ${resolvedPath}, falling back to ADC`);
+    return null;
+  }
   return JSON.parse(fileContents);
 };
 
@@ -60,15 +65,23 @@ try {
     loadedServiceAccount = serviceAccount;
   } else if (credentialsFile) {
     const serviceAccount = getServiceAccountFromFile(credentialsFile);
-    appOptions = {
-      ...appOptions,
-      projectId: serviceAccount.project_id || appOptions.projectId,
-    };
-    console.log('[Firebase] Loaded credentials from GOOGLE_APPLICATION_CREDENTIALS path');
-    if (serviceAccount.client_email) {
-      console.log('[Firebase] Service account:', serviceAccount.client_email);
+    if (serviceAccount) {
+      appOptions = {
+        ...appOptions,
+        projectId: serviceAccount.project_id || appOptions.projectId,
+      };
+      console.log('[Firebase] Loaded credentials from GOOGLE_APPLICATION_CREDENTIALS path');
+      if (serviceAccount.client_email) {
+        console.log('[Firebase] Service account:', serviceAccount.client_email);
+      }
+      loadedServiceAccount = serviceAccount;
+    } else {
+      console.log('[Firebase] Using application default credentials');
+      appOptions = {
+        ...appOptions,
+        credential: admin.credential.applicationDefault(),
+      };
     }
-    loadedServiceAccount = serviceAccount;
   } else {
     console.log('[Firebase] Using application default credentials');
     appOptions = {

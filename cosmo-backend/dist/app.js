@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.initializeApp = initializeApp;
 const express_1 = __importDefault(require("express"));
 const multer_1 = __importDefault(require("multer"));
+const firestore_1 = require("firebase-admin/firestore");
 const auth_routes_1 = require("./routes/auth.routes");
 const profile_routes_1 = require("./routes/profile.routes");
 const event_routes_1 = require("./routes/event.routes");
@@ -35,8 +36,37 @@ const upload = (0, multer_1.default)({
         }
     },
 });
+// Middleware to convert Firestore Timestamps to ISO strings in JSON responses
+function serializeFirestoreTimestamps(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return obj;
+    }
+    // Handle Firestore Timestamp objects
+    if (obj instanceof firestore_1.Timestamp || (obj.constructor && obj.constructor.name === 'Timestamp')) {
+        return obj.toDate().toISOString();
+    }
+    // Handle arrays
+    if (Array.isArray(obj)) {
+        return obj.map(serializeFirestoreTimestamps);
+    }
+    // Handle plain objects
+    const result = {};
+    for (const [key, value] of Object.entries(obj)) {
+        result[key] = serializeFirestoreTimestamps(value);
+    }
+    return result;
+}
 function initializeApp(app) {
     logger_1.logger.info('Initializing application routes...');
+    // Add middleware to serialize Firestore Timestamps in all responses
+    app.use((req, res, next) => {
+        const originalJson = res.json.bind(res);
+        res.json = function (data) {
+            const serialized = serializeFirestoreTimestamps(data);
+            return originalJson(serialized);
+        };
+        next();
+    });
     // API version prefix
     const apiV1 = express_1.default.Router();
     // ============================================

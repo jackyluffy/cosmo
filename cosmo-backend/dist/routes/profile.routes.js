@@ -34,20 +34,24 @@ const availabilityEntrySchema = joi_1.default.object({
     blocked: joi_1.default.boolean().optional(),
 });
 const updateProfileSchema = joi_1.default.object({
-    name: joi_1.default.string().min(2).max(50),
-    age: joi_1.default.number().min(18).max(100),
-    bio: joi_1.default.string().max(500),
-    gender: joi_1.default.string().valid('male', 'female', 'other'),
-    interests: joi_1.default.array().items(joi_1.default.string()),
-    lookingFor: joi_1.default.array().items(joi_1.default.string().valid('male', 'female', 'other')),
-    photos: joi_1.default.array().items(joi_1.default.string().uri()),
+    name: joi_1.default.string().min(2).max(50).optional(),
+    age: joi_1.default.number().min(18).max(100).optional(),
+    bio: joi_1.default.string().max(500).optional(),
+    gender: joi_1.default.string().valid('male', 'female', 'other').optional(),
+    genderPreference: joi_1.default.array().items(joi_1.default.string().valid('male', 'female', 'other')).optional(),
+    height: joi_1.default.number().min(100).max(250).optional(),
+    interests: joi_1.default.array().items(joi_1.default.string()).optional(),
+    lookingFor: joi_1.default.array().items(joi_1.default.string().valid('male', 'female', 'other')).optional(),
+    photos: joi_1.default.array().items(joi_1.default.string().uri()).optional(),
     location: joi_1.default.object({
-        lat: joi_1.default.number().min(-90).max(90),
-        lng: joi_1.default.number().min(-180).max(180),
-    }),
-    radius: joi_1.default.number().min(1).max(100),
-    traits: joi_1.default.any(), // Allow traits object for personality traits
+        lat: joi_1.default.number().min(-90).max(90).required(),
+        lng: joi_1.default.number().min(-180).max(180).required(),
+    }).optional(),
+    radius: joi_1.default.number().min(1).max(100).optional(),
+    traits: joi_1.default.any().optional(), // Allow traits object for personality traits
     availability: joi_1.default.object().pattern(joi_1.default.string().min(1), availabilityEntrySchema).optional(),
+    verified: joi_1.default.boolean().optional(),
+    verificationDate: joi_1.default.string().isoDate().optional(),
 });
 const updateLocationSchema = joi_1.default.object({
     latitude: joi_1.default.number().min(-90).max(90).required(),

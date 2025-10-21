@@ -170,5 +170,47 @@ export class NotificationService {
   static async sendChatMessage(userId: string, payload: NotificationPayload): Promise<void> {
     await this.dispatch(payload, { userId, type: 'chat_message' });
   }
+
+  static async sendIncomingLike(userId: string, likerName?: string): Promise<void> {
+    const title = 'You have a new like';
+    const body = 'Someone liked your profile!';
+    await this.dispatch(
+      {
+        title,
+        body,
+        data: {
+          type: 'incoming_like',
+        },
+      },
+      {
+        userId,
+        type: 'incoming_like',
+      }
+    );
+  }
+
+  static async sendEventVoteInvitation(
+    userId: string,
+    eventId: string,
+    eventType: string,
+    eventTitle?: string
+  ): Promise<void> {
+    const friendlyTitle = eventTitle || 'New group event';
+    await this.dispatch(
+      {
+        title: friendlyTitle,
+        body: 'Your group event is ready. Come vote on the meetup spot!',
+        data: {
+          type: 'event_vote',
+          eventId,
+          eventType,
+        },
+      },
+      {
+        userId,
+        type: 'event_vote',
+      }
+    );
+  }
 }
 // TODO: support in-app toast vs. push logic depending on user preferences.

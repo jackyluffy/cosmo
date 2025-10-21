@@ -4,6 +4,7 @@ exports.EventOrchestrationService = void 0;
 const firestore_1 = require("firebase-admin/firestore");
 const firebase_1 = require("../config/firebase");
 const pair_matching_service_1 = require("./pair-matching.service");
+const notification_service_1 = require("./notification.service");
 const events_config_1 = require("../config/events.config");
 const EVENT_TYPES = ['coffee', 'bar', 'restaurant', 'tennis', 'dog_walking', 'hiking'];
 const SYSTEM_ORGANIZER = {
@@ -20,6 +21,12 @@ function selectTemplate(eventType) {
 function calculatePairsPerEvent(eventType) {
     const template = selectTemplate(eventType);
     return Math.max(1, Math.floor(template.groupSize / 2));
+}
+function formatEventTypeLabel(eventType) {
+    return eventType
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
 }
 function buildVenueOptionId(eventType, index, venue) {
     const nameSlug = venue.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -161,6 +168,33 @@ async function createPendingEventDocument(eventType, pairMatches, now) {
     return eventDoc.id;
 }
 class EventOrchestrationService {
+    static async userHasActiveEventOfType(userId, eventType) {
+        try {
+            const userSnap = await firebase_1.db.collection(firebase_1.Collections.USERS).doc(userId).get();
+            if (!userSnap.exists) {
+                return false;
+            }
+            const userData = userSnap.data();
+            const assignments = userData.pendingEvents || [];
+            return assignments.some((assignment) => assignment.eventType === eventType &&
+                this.ACTIVE_ASSIGNMENT_STATUSES.has(assignment.status));
+        }
+        catch (error) {
+            console.warn('[EventOrchestration] Failed to evaluate user assignments', { userId, error });
+            return false;
+        }
+    }
+    static async filterEligiblePairsForEventType(pairs, eventType) {
+        const filtered = [];
+        for (const pair of pairs) {
+            const conflicts = await Promise.all(pair.userIds.map((userId) => this.userHasActiveEventOfType(userId, eventType)));
+            if (conflicts.some(Boolean)) {
+                continue;
+            }
+            filtered.push(pair);
+        }
+        return filtered;
+    }
     static async processAllQueues() {
         const createdEventsByType = {
             coffee: [],
@@ -182,13 +216,14 @@ class EventOrchestrationService {
             return [];
         }
         // Remove pairs that are already tied to an event (defensive, though query should exclude them)
-        const eligiblePairs = queuedPairs
+        let eligiblePairs = queuedPairs
             .filter((match) => !match.pendingEventId)
             .sort((a, b) => {
             const aMillis = a.availabilityComputedAt ? a.availabilityComputedAt.toMillis() : 0;
             const bMillis = b.availabilityComputedAt ? b.availabilityComputedAt.toMillis() : 0;
             return aMillis - bMillis;
         });
+        eligiblePairs = await this.filterEligiblePairsForEventType(eligiblePairs, eventType);
         const createdEventIds = [];
         const now = firestore_1.Timestamp.now();
         while (eligiblePairs.length >= pairsRequired) {
@@ -201,6 +236,11 @@ class EventOrchestrationService {
             });
             const assignment = buildPendingAssignment(eventId, eventType, now);
             await Promise.all(Array.from(uniqueUserIds).map((userId) => assignPendingEventToUser(userId, assignment)));
+            const eventTitle = selectTemplate(eventType).title;
+            await Promise.all(Array.from(uniqueUserIds).map((userId) => notification_service_1.NotificationService.sendEventVoteInvitation(userId, eventId, eventType, eventTitle)));
+            // Remove any remaining pairs that include users already assigned to an event of this type
+            const assignedIds = new Set(uniqueUserIds);
+            eligiblePairs = eligiblePairs.filter((pair) => !pair.userIds.some((userId) => assignedIds.has(userId)));
             createdEventIds.push(eventId);
         }
         return createdEventIds;
@@ -211,6 +251,7 @@ class EventOrchestrationService {
         const pairRef = firebase_1.db.collection(firebase_1.Collections.PAIR_MATCHES).doc(pair.id);
         const userRefs = pair.userIds.map((userId) => firebase_1.db.collection(firebase_1.Collections.USERS).doc(userId));
         let success = false;
+        let eventTitle;
         await firebase_1.db.runTransaction(async (tx) => {
             const [eventSnap, pairSnap, ...userSnaps] = await Promise.all([
                 tx.get(eventRef),
@@ -224,6 +265,7 @@ class EventOrchestrationService {
             if (eventData.status === 'canceled') {
                 return;
             }
+            eventTitle = eventData.title;
             const requiredPairs = eventData.requiredPairCount ?? calculatePairsPerEvent(eventType);
             const currentPairs = (eventData.pendingPairMatchIds || []).length;
             if (currentPairs >= requiredPairs) {
@@ -279,6 +321,8 @@ class EventOrchestrationService {
         if (success) {
             const assignment = buildPendingAssignment(eventId, eventType, now);
             await Promise.all(pair.userIds.map((userId) => assignPendingEventToUser(userId, assignment)));
+            const templateTitle = eventTitle || selectTemplate(eventType).title;
+            await Promise.all(pair.userIds.map((userId) => notification_service_1.NotificationService.sendEventVoteInvitation(userId, eventId, eventType, templateTitle)));
         }
         return success;
     }
@@ -314,4 +358,9 @@ class EventOrchestrationService {
     }
 }
 exports.EventOrchestrationService = EventOrchestrationService;
+EventOrchestrationService.ACTIVE_ASSIGNMENT_STATUSES = new Set([
+    'pending_join',
+    'joined',
+    'confirmed',
+]);
 //# sourceMappingURL=event-orchestration.service.js.map

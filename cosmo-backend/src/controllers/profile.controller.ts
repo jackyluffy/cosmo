@@ -83,6 +83,8 @@ export class ProfileController {
         }
       }
       if (updates.bio) profileUpdates['profile.bio'] = updates.bio;
+      if (updates.occupation) profileUpdates['profile.occupation'] = updates.occupation;
+      if (updates.socialMedia) profileUpdates['profile.socialMedia'] = updates.socialMedia;
       if (updates.interests) profileUpdates['profile.interests'] = updates.interests;
       if (updates.traits) profileUpdates['profile.traits'] = updates.traits;
       if (updates.radius) profileUpdates['profile.radius'] = updates.radius;

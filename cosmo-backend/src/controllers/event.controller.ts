@@ -480,9 +480,68 @@ export class EventController {
         })
       );
 
-      const results = enrichedAssignments.filter(
+      const filteredAssignments = enrichedAssignments.filter(
         (item): item is AssignmentView => item !== null
       );
+
+      // Clean up user's pendingEvents if any events were filtered out (deleted events)
+      if (filteredAssignments.length < assignments.length) {
+        const validEventIds = new Set(filteredAssignments.map(item => item.event.id));
+        const cleanedPendingEvents = assignments.filter(a => validEventIds.has(a.eventId));
+
+        // Update user document with cleaned pendingEvents
+        await db.collection(Collections.USERS).doc(user.id).update({
+          pendingEvents: cleanedPendingEvents,
+          pendingEventCount: cleanedPendingEvents.length,
+        });
+      }
+
+      // Filter to only show events that have enough participants
+      // Show events where enough users are assigned (pending_join, joined, or confirmed)
+      const eventsWithEnoughParticipants = filteredAssignments.filter((item) => {
+        const event = item.event;
+        const groupSize = event.groupSize || 4;
+        const participantStatuses = event.participantStatuses || {};
+
+        // Count participants who are actively assigned (pending_join, joined, or confirmed)
+        const activeCount = Object.values(participantStatuses).filter(
+          (status) => status === 'pending_join' || status === 'joined' || status === 'confirmed'
+        ).length;
+
+        // Only show event if we have enough active participants
+        return activeCount >= groupSize;
+      });
+
+      // Filter to only show one active event per type
+      const eventTypeMap = new Map<string, AssignmentView>();
+      const ACTIVE_STATUSES = new Set(['pending_join', 'joined', 'confirmed']);
+
+      eventsWithEnoughParticipants.forEach((item) => {
+        const eventType = item.event.eventType || 'unknown';
+        const status = item.assignment.status;
+
+        // Only process active assignments
+        if (!ACTIVE_STATUSES.has(status)) {
+          return;
+        }
+
+        const existing = eventTypeMap.get(eventType);
+
+        if (!existing) {
+          // First event of this type
+          eventTypeMap.set(eventType, item);
+        } else {
+          // Show the most recent event per type based on updatedAt
+          const itemTime = item.assignment.updatedAt?.toMillis?.() || 0;
+          const existingTime = existing.assignment.updatedAt?.toMillis?.() || 0;
+
+          if (itemTime > existingTime) {
+            eventTypeMap.set(eventType, item);
+          }
+        }
+      });
+
+      const results = Array.from(eventTypeMap.values());
 
       const subscription = user.subscription;
       const trialUsed =
@@ -500,7 +559,7 @@ export class EventController {
         success: true,
         data: {
           assignments: results,
-          pendingEventCount: user.pendingEventCount ?? results.length,
+          pendingEventCount: results.length,
           canJoin,
         },
       } as ApiResponse);

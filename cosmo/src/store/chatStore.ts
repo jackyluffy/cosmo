@@ -12,6 +12,7 @@ export interface ChatParticipant {
   age?: number;
   bio?: string;
   photo?: string | null;
+  photos?: string[];
   interests?: string[];
 }
 
@@ -62,8 +63,13 @@ const normalizeTimestamps = (value: any): any => {
   if (!value || typeof value !== 'object') {
     return value;
   }
+  // Handle Firestore Timestamp with toDate method
   if (typeof value.toDate === 'function') {
     return value.toDate().toISOString();
+  }
+  // Handle Firestore Timestamp JSON format (_seconds, _nanoseconds)
+  if (value._seconds !== undefined && value._nanoseconds !== undefined) {
+    return new Date(value._seconds * 1000 + value._nanoseconds / 1000000).toISOString();
   }
   if (Array.isArray(value)) {
     return value.map(normalizeTimestamps);
@@ -117,6 +123,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         normalizeTimestamps(message)
       );
       normalizedMessages.reverse();
+
+      const normalizedChat = normalizeTimestamps(response.data.data.chat);
+      console.log('[chatStore] Chat loaded:', {
+        id: normalizedChat.id,
+        participantsCount: normalizedChat.participants?.length || 0,
+        messagesCount: normalizedMessages.length,
+      });
+
       set((state) => ({
         messages: {
           ...state.messages,
@@ -124,7 +138,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
         chats: {
           ...state.chats,
-          [chatId]: normalizeTimestamps(response.data.data.chat),
+          [chatId]: normalizedChat,
         },
         loadingMessages: { ...state.loadingMessages, [chatId]: false },
       }));
@@ -149,6 +163,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const response = await realAPI.chat.sendMessage(chatId, { message, attachments });
       const normalizedMessage = normalizeTimestamps(response.data.data);
+
       set((state) => ({
         messages: {
           ...state.messages,

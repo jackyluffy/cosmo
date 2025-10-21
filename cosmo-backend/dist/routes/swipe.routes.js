@@ -15,6 +15,7 @@ const swipeSchema = joi_1.default.object({
 });
 // Routes
 router.get('/deck', swipe_controller_1.SwipeController.getDeck);
+router.get('/likes/summary', swipe_controller_1.SwipeController.getLikeSummary);
 router.post('/:targetId', (0, validation_middleware_1.validateRequest)(swipeSchema), swipe_controller_1.SwipeController.swipe);
 router.get('/matches', swipe_controller_1.SwipeController.getMatches);
 router.delete('/matches/:matchId', swipe_controller_1.SwipeController.unmatch);

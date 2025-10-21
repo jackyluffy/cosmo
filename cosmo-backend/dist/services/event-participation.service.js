@@ -219,9 +219,14 @@ class EventParticipationService {
                 ? { id: refreshedSnap.id, ...refreshedSnap.data() }
                 : updatedEvent;
             const participantStatuses = refreshedEvent.participantStatuses || {};
-            const joinedParticipantIds = Object.entries(participantStatuses)
-                .filter(([, status]) => status === 'joined')
+            const activeStatuses = new Set(['joined', 'confirmed', 'completed']);
+            const fromStatuses = Object.entries(participantStatuses)
+                .filter(([, status]) => activeStatuses.has(status))
                 .map(([id]) => id);
+            const fromParticipantList = Array.isArray(refreshedEvent.participantUserIds)
+                ? refreshedEvent.participantUserIds.filter((id) => Boolean(id))
+                : [];
+            const joinedParticipantIds = Array.from(new Set([...fromStatuses, ...fromParticipantList]));
             const finalVenue = extractVenue(refreshedEvent, refreshedEvent.finalVenueOptionId || updatedEvent.finalVenueOptionId);
             const chatRoomId = await group_chat_service_1.GroupChatService.createOrUpdateChatForEvent(refreshedEvent, joinedParticipantIds, finalVenue);
             await eventRef.update({

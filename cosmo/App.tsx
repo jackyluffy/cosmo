@@ -7,6 +7,7 @@ import { useAuthStore } from './src/store/authStore';
 import { Colors } from './src/constants/theme';
 import SplashScreenNative from './src/components/SplashScreenNative';
 import { useEventsStore } from './src/store/eventsStore';
+import { useSwipeStore } from './src/store/swipeStore';
 
 import LoginScreen from './src/screens/auth/LoginScreen';
 import TermsOfServiceScreen from './src/screens/auth/TermsOfServiceScreen';
@@ -29,6 +30,8 @@ const OnboardingStack = createStackNavigator();
 function MainTabs() {
   const pendingCount = useEventsStore((state) => state.pendingCount);
   const fetchAssignments = useEventsStore((state) => state.fetchAssignments);
+  const incomingLikes = useSwipeStore((state) => state.incomingLikes);
+  const fetchLikeStats = useSwipeStore((state) => state.fetchLikeStats);
   const hasFetchedRef = React.useRef(false);
 
   useEffect(() => {
@@ -39,6 +42,19 @@ function MainTabs() {
       });
     }
   }, [fetchAssignments]);
+
+  useEffect(() => {
+    fetchLikeStats().catch((error) => {
+      console.error('[MainTabs] Failed to fetch like stats:', error);
+    });
+    const interval = setInterval(() => {
+      fetchLikeStats().catch((error) => {
+        console.error('[MainTabs] Failed to refresh like stats:', error);
+      });
+    }, 60_000);
+
+    return () => clearInterval(interval);
+  }, [fetchLikeStats]);
 
   return (
     <Tab.Navigator
@@ -63,7 +79,24 @@ function MainTabs() {
         headerShown: false,
       })}
     >
-      <Tab.Screen name="Swipe" component={SwipeScreen} />
+      <Tab.Screen
+        name="Swipe"
+        component={SwipeScreen}
+        options={{
+          tabBarBadge: incomingLikes > 0 ? incomingLikes : undefined,
+          tabBarBadgeStyle:
+            incomingLikes > 0
+              ? {
+                  backgroundColor: Colors.error,
+                  color: Colors.white,
+                  fontSize: 11,
+                  minWidth: 18,
+                  height: 18,
+                  borderRadius: 9,
+                }
+              : undefined,
+        }}
+      />
       <Tab.Screen
         name="Events"
         component={EventsScreen}
@@ -155,7 +188,7 @@ export default function App() {
   const hasBasicProfile = !!(user?.profile?.name && user?.profile?.age);
   const isVerified = !!(user?.profile?.verified);
 
-  const isProfileComplete = hasPhotos && hasLocation && hasBasicProfile && hasInterests && isVerified;
+  const isProfileComplete = hasPhotos && hasLocation && hasBasicProfile && hasInterests;
 
   // Debug logging
   console.log('Profile completion check:', {

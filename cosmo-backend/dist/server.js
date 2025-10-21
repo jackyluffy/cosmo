@@ -124,7 +124,7 @@ server.listen(PORT, '0.0.0.0', () => {
     logger_1.logger.info(`🚀 Server running on port ${PORT}`);
     logger_1.logger.info(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
     logger_1.logger.info(`🔥 Firebase Project: ${process.env.PROJECT_ID || process.env.FIREBASE_PROJECT_ID}`);
-    const defaultIntervalMs = 15 * 60 * 1000; // 15 minutes
+    const defaultIntervalMs = 1 * 60 * 1000; // 1 minute (changed from 15 minutes for faster testing)
     const rawInterval = process.env.EVENT_QUEUE_POLL_INTERVAL_MS;
     const parsedInterval = rawInterval ? Number(rawInterval) : defaultIntervalMs;
     const intervalMs = Number.isFinite(parsedInterval) && parsedInterval > 0 ? parsedInterval : defaultIntervalMs;

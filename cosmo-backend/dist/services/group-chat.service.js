@@ -6,6 +6,7 @@ const firebase_1 = require("../config/firebase");
 class GroupChatService {
     static async createOrUpdateChatForEvent(event, participantIds, finalVenue) {
         const now = firestore_1.Timestamp.now();
+        const uniqueParticipantIds = Array.from(new Set(participantIds.filter(Boolean)));
         const venueSummary = finalVenue
             ? {
                 id: finalVenue.id,
@@ -24,7 +25,7 @@ class GroupChatService {
                 eventId: event.id,
                 title: event.title,
                 eventType: event.eventType || null,
-                participantIds,
+                participantIds: uniqueParticipantIds,
                 venue: venueSummary,
                 suggestedTimes: event.suggestedTimes || [],
                 updatedAt: now,
@@ -35,7 +36,7 @@ class GroupChatService {
             eventId: event.id,
             title: event.title,
             eventType: event.eventType || null,
-            participantIds,
+            participantIds: uniqueParticipantIds,
             venue: venueSummary,
             suggestedTimes: event.suggestedTimes || [],
             createdAt: now,

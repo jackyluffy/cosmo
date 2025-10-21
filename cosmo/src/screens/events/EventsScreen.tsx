@@ -622,9 +622,6 @@ export default function EventsScreen({ navigation }: any) {
         <View style={styles.cardHeader}>
           <View style={styles.cardHeaderText}>
             <Text style={styles.cardTitle}>{event.title}</Text>
-            <Text style={styles.cardSubtitle}>
-              {eventTypeLabel}
-            </Text>
           </View>
           <View style={styles.cardHeaderRight}>
             <View style={badgeStyle}>
@@ -645,23 +642,6 @@ export default function EventsScreen({ navigation }: any) {
 
         {!isCollapsed && (
           <>
-            <View style={styles.cardInfo}>
-              <View style={styles.infoRow}>
-                <Ionicons name="calendar-outline" size={18} color={Colors.textSecondary} />
-                <Text style={styles.infoText}>
-                  {humanDate}
-                  {humanTime ? ` at ${humanTime}` : ''}
-                </Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Ionicons name="location-outline" size={18} color={Colors.textSecondary} />
-                <Text style={styles.infoText} numberOfLines={1}>
-                  {event.location?.name}
-                </Text>
-              </View>
-            </View>
-
             {renderSuggestedTimes(event.suggestedTimes)}
 
         {activeCount > 0 && (
@@ -717,7 +697,7 @@ export default function EventsScreen({ navigation }: any) {
         {assignment.status === 'pending_join' && (
           showSubscribeCta ? (
             <TouchableOpacity style={styles.subscribeButton} onPress={handleSubscribe}>
-              <Text style={styles.subscribeButtonText}>Subscribe to Join Events</Text>
+              <Text style={styles.subscribeButtonText}>Vote to Join</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -1041,7 +1021,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.xxl,
-    paddingBottom: Spacing.lg,
+    paddingBottom: Spacing.sm,
     backgroundColor: Colors.white,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
@@ -1098,7 +1078,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.lg,
   },
   scrollContentCentered: {
     flexGrow: 1,
@@ -1158,6 +1140,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     ...Typography.h3,
+    fontSize: 16,
   },
   cardSubtitle: {
     ...Typography.caption,
@@ -1198,9 +1181,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.sm,
   },
+  infoLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
   infoText: {
     ...Typography.bodySmall,
     color: Colors.textSecondary,
+    marginLeft: Spacing.sm,
+    flex: 1,
+  },
+  infoLinkText: {
+    ...Typography.bodySmall,
+    color: Colors.primary,
+    textDecorationLine: 'underline',
     marginLeft: Spacing.sm,
     flex: 1,
   },
@@ -1270,6 +1265,8 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 12,
     marginTop: 2,
+    textDecorationLine: 'underline',
+    fontWeight: '600',
   },
   venueMetaRow: {
     padding: Spacing.md,

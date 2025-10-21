@@ -29,11 +29,73 @@ class ChatService {
                     age: profile?.age,
                     bio: profile?.bio,
                     photo: profile?.photos?.[0] || null,
+                    photos: profile?.photos || [],
                     interests,
                 };
             });
         }
         return profiles;
+    }
+    static extractActiveParticipantIds(eventData) {
+        const participantStatuses = eventData?.participantStatuses || {};
+        const activeFromStatuses = Object.entries(participantStatuses)
+            .filter(([, status]) => this.ACTIVE_PARTICIPANT_STATUSES.has(String(status)))
+            .map(([id]) => id);
+        const activeFromParticipants = Array.isArray(eventData?.participantUserIds)
+            ? eventData.participantUserIds.filter((id) => {
+                if (!id) {
+                    return false;
+                }
+                const status = participantStatuses[id];
+                if (!status) {
+                    // Assume active unless explicitly canceled/removed
+                    return true;
+                }
+                const statusStr = String(status);
+                return statusStr !== 'canceled' && statusStr !== 'removed';
+            })
+            : [];
+        return Array.from(new Set([...activeFromStatuses, ...activeFromParticipants]));
+    }
+    static async ensureChatParticipantsUpToDate(chat) {
+        if (!chat.eventId) {
+            return chat;
+        }
+        try {
+            const eventSnap = await firebase_1.db.collection(firebase_1.Collections.EVENTS).doc(chat.eventId).get();
+            if (!eventSnap.exists) {
+                return chat;
+            }
+            const eventData = eventSnap.data();
+            const expectedParticipantIds = this.extractActiveParticipantIds(eventData);
+            if (expectedParticipantIds.length === 0) {
+                return chat;
+            }
+            const currentParticipantIds = Array.isArray(chat.participantIds)
+                ? chat.participantIds.filter(Boolean)
+                : [];
+            const hasDifference = expectedParticipantIds.length !== currentParticipantIds.length ||
+                expectedParticipantIds.some((id) => !currentParticipantIds.includes(id));
+            if (hasDifference) {
+                console.log('[ChatService] Syncing chat participants:', {
+                    chatId: chat.id,
+                    currentCount: currentParticipantIds.length,
+                    expectedCount: expectedParticipantIds.length,
+                });
+                await firebase_1.db
+                    .collection(firebase_1.Collections.GROUP_CHATS)
+                    .doc(chat.id)
+                    .update({ participantIds: expectedParticipantIds });
+                chat.participantIds = expectedParticipantIds;
+            }
+            else {
+                chat.participantIds = currentParticipantIds;
+            }
+        }
+        catch (error) {
+            console.error('[ChatService] ensureChatParticipantsUpToDate error:', error);
+        }
+        return chat;
     }
     static async getUserChats(userId) {
         const snapshot = await firebase_1.db
@@ -41,7 +103,10 @@ class ChatService {
             .where('participantIds', 'array-contains', userId)
             .orderBy('updatedAt', 'desc')
             .get();
-        const chats = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const chats = await Promise.all(snapshot.docs.map(async (doc) => {
+            const chat = { id: doc.id, ...doc.data() };
+            return this.ensureChatParticipantsUpToDate(chat);
+        }));
         const participantIds = chats.flatMap((chat) => chat.participantIds || []);
         const profileMap = await this.loadParticipantProfiles(participantIds);
         return chats.map((chat) => ({
@@ -56,13 +121,27 @@ class ChatService {
         if (!chatSnap.exists) {
             throw new Error('Chat not found');
         }
-        const chat = { id: chatSnap.id, ...chatSnap.data() };
+        const chat = await this.ensureChatParticipantsUpToDate({ id: chatSnap.id, ...chatSnap.data() });
+        console.log('[ChatService] getChatById:', {
+            chatId,
+            participantIds: chat.participantIds,
+            participantIdsCount: chat.participantIds?.length,
+        });
         const profileMap = await this.loadParticipantProfiles(chat.participantIds || []);
+        console.log('[ChatService] Loaded profiles:', {
+            profileMapKeys: Object.keys(profileMap),
+            profileMapCount: Object.keys(profileMap).length,
+        });
+        const participants = (chat.participantIds || [])
+            .map((id) => profileMap[id])
+            .filter((participant) => Boolean(participant));
+        console.log('[ChatService] Final participants:', {
+            participantsCount: participants.length,
+            participants: participants.map(p => ({ id: p.id, name: p.name, hasPhoto: !!p.photo })),
+        });
         return {
             ...chat,
-            participants: (chat.participantIds || [])
-                .map((id) => profileMap[id])
-                .filter((participant) => Boolean(participant)),
+            participants,
         };
     }
     static async getMessages(chatId, limit = 50, before) {
@@ -168,4 +247,10 @@ class ChatService {
     }
 }
 exports.ChatService = ChatService;
+ChatService.ACTIVE_PARTICIPANT_STATUSES = new Set([
+    'pending_join',
+    'joined',
+    'confirmed',
+    'completed',
+]);
 //# sourceMappingURL=chat.service.js.map

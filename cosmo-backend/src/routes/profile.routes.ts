@@ -34,9 +34,15 @@ const updateProfileSchema = Joi.object({
   name: Joi.string().min(2).max(50).optional(),
   age: Joi.number().min(18).max(100).optional(),
   bio: Joi.string().max(500).optional(),
-  gender: Joi.string().valid('male', 'female', 'other').optional(),
-  genderPreference: Joi.array().items(Joi.string().valid('male', 'female', 'other')).optional(),
-  height: Joi.number().min(100).max(250).optional(),
+  gender: Joi.string().valid('male', 'female', 'other', 'non-binary').optional(),
+  genderPreference: Joi.string().valid('male', 'female', 'both').optional(),
+  ethnicity: Joi.string().valid('Asian', 'Black', 'Hispanic', 'White', 'Mixed', 'Other').optional(),
+  height: Joi.string().optional(), // e.g., "5'5\""
+  occupation: Joi.string().max(100).optional(),
+  socialMedia: Joi.object({
+    platform: Joi.string().valid('instagram', 'wechat').required(),
+    handle: Joi.string().max(50).required(),
+  }).optional(),
   interests: Joi.array().items(Joi.string()).optional(),
   lookingFor: Joi.array().items(Joi.string().valid('male', 'female', 'other')).optional(),
   photos: Joi.array().items(Joi.string().uri()).optional(),

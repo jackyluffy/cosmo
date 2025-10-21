@@ -37,7 +37,6 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
   const [socialHandle, setSocialHandle] = useState('');
   const [job, setJob] = useState('');
   const [oneThingAboutMe, setOneThingAboutMe] = useState('');
-  const [lookingFor, setLookingFor] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const heightScrollViewRef = useRef<ScrollView>(null);
 
@@ -132,11 +131,6 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
       // Add optional job field if provided
       if (job.trim()) {
         profileData.occupation = job.trim();
-      }
-
-      // Add optional lookingFor field if provided
-      if (lookingFor.trim()) {
-        profileData.lookingFor = lookingFor.trim();
       }
 
       // Add social media handle if provided
@@ -499,23 +493,6 @@ export default function BasicInfoScreen({ onComplete }: BasicInfoScreenProps) {
             textAlignVertical="top"
           />
           <Text style={styles.characterCount}>{oneThingAboutMe.length}/200</Text>
-        </View>
-
-        {/* What I'm Looking For */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>What I'm looking for in a dating partner (Optional)</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={lookingFor}
-            onChangeText={setLookingFor}
-            placeholder="What qualities are you looking for..."
-            placeholderTextColor={Colors.gray}
-            multiline
-            numberOfLines={4}
-            maxLength={200}
-            textAlignVertical="top"
-          />
-          <Text style={styles.characterCount}>{lookingFor.length}/200</Text>
         </View>
 
         <TouchableOpacity

@@ -338,4 +338,9 @@ export interface UpdateProfileRequest {
   verified?: boolean;
   verificationDate?: string;
   availability?: AvailabilityMap;
+  occupation?: string;
+  socialMedia?: {
+    platform: 'instagram' | 'wechat';
+    handle: string;
+  };
 }
